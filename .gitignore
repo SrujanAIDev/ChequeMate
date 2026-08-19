@@ -1,0 +1,22 @@
+raw/
+cheques/
+archive/
+.env
+*.png
+*.jpg
+*.pdf
+run*.txt
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Cumulative validation reports: real payee names, amounts, and dates land
+# here once this pipeline runs on genuine cheques. Same privacy rationale as
+# raw/ and cheques/ above — keep local and gitignored.
+reports/
+
+.vscode/
+.idea/
+.coverage
+htmlcov/
