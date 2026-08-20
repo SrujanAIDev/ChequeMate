@@ -269,193 +269,531 @@ def append_audit_event(event: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# HTML dashboard
+# HTML dashboard — glassmorphic, client-rendered from embedded JSON
 # ---------------------------------------------------------------------------
 
-_STATUS_COLOR = {
-    "VALID": "#0ca30c",
-    "INVALID": "#d03b3b",
-    "PASS": "#0ca30c",
-    "FAIL": "#d03b3b",
-    "UNABLE": "#c98500",
-}
-_STATUS_ICON = {
-    "VALID": "✓", "PASS": "✓",
-    "INVALID": "✗", "FAIL": "✗",
-    "UNABLE": "?",
-}
-
 _CSS = """
-:root {
-  color-scheme: light;
-  --surface-1: #fcfcfb;
-  --page: #f9f9f7;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --muted: #898781;
-  --gridline: #e1e0d9;
-  --border: rgba(11,11,11,0.10);
+:root{
+  color-scheme: dark;
+  --bg-a:#0b0f1e;
+  --bg-b:#111827;
+  --bg-c:#0d1b1a;
+  --glass:rgba(255,255,255,0.055);
+  --glass-strong:rgba(255,255,255,0.09);
+  --glass-border:rgba(255,255,255,0.14);
+  --text-primary:#f3f5f9;
+  --text-secondary:#aab2c5;
+  --muted:#707c93;
+  --brand-a:#a78bfa;
+  --brand-b:#22d3ee;
+  --ok:#34d399;
+  --ok-bg:rgba(52,211,153,0.16);
+  --bad:#fb7185;
+  --bad-bg:rgba(251,113,133,0.16);
+  --warn:#fbbf24;
+  --shadow:0 8px 32px rgba(0,0,0,0.35);
+  --radius:16px;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --surface-1: #1a1a19;
-    --page: #0d0d0d;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --muted: #898781;
-    --gridline: #2c2c2a;
-    --border: rgba(255,255,255,0.10);
-  }
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  min-height:100vh;
+  font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif;
+  color:var(--text-primary);
+  background:
+    radial-gradient(1100px 620px at 8% -10%, rgba(167,139,250,0.28), transparent 60%),
+    radial-gradient(900px 560px at 100% 0%, rgba(34,211,238,0.22), transparent 55%),
+    radial-gradient(1000px 700px at 50% 120%, rgba(52,211,153,0.14), transparent 60%),
+    linear-gradient(160deg, var(--bg-a), var(--bg-b) 55%, var(--bg-c));
+  background-attachment: fixed;
+  padding: 28px clamp(16px, 4vw, 40px) 48px;
 }
-* { box-sizing: border-box; }
-body {
-  margin: 0;
-  background: var(--page);
-  color: var(--text-primary);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-  padding: 32px;
+.glass{
+  background: var(--glass);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
 }
-h1 { font-size: 22px; margin: 0 0 4px; }
-.subtitle { color: var(--text-secondary); margin: 0 0 28px; font-size: 13px; }
-.tiles { display: flex; gap: 16px; margin-bottom: 28px; flex-wrap: wrap; }
-.tile {
-  background: var(--surface-1);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px 24px;
-  min-width: 140px;
+.appbar{
+  display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+  padding:18px 24px; margin-bottom:18px;
 }
-.tile .label { color: var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
-.tile .value { font-size: 32px; font-weight: 600; font-variant-numeric: proportional-nums; margin-top: 4px; }
-table { width: 100%; border-collapse: collapse; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--gridline); font-variant-numeric: tabular-nums; vertical-align: top; }
-th { color: var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; font-weight: 600; }
-tr:last-child td { border-bottom: none; }
-.badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-.rule-line { display: flex; gap: 6px; align-items: baseline; margin: 2px 0; }
-.rule-icon { font-weight: 700; width: 1em; display: inline-block; }
-.rule-id { color: var(--text-secondary); min-width: 92px; display: inline-block; }
-.mono { font-variant-numeric: tabular-nums; }
-.empty { color: var(--text-secondary); padding: 24px; text-align: center; }
-footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
-details > summary { cursor: pointer; color: var(--text-secondary); }
+.brand{display:flex; align-items:center; gap:10px}
+.brand .dot{
+  width:10px; height:10px; border-radius:50%;
+  background: linear-gradient(135deg, var(--brand-a), var(--brand-b));
+  box-shadow: 0 0 14px rgba(167,139,250,0.7);
+}
+.brand .word{font-size:20px; font-weight:700; letter-spacing:.2px}
+.brand .word b{
+  background: linear-gradient(135deg, var(--brand-a), var(--brand-b));
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.subtitle{color:var(--text-secondary); font-size:12.5px; padding-left:12px; border-left:1px solid var(--glass-border)}
+.chips{display:flex; gap:8px; flex-wrap:wrap; margin-left:auto}
+.chip{
+  background: var(--glass-strong); border:1px solid var(--glass-border);
+  border-radius:999px; padding:6px 13px; font-size:11.5px; color:var(--text-secondary);
+  white-space:nowrap;
+}
+.chip b{color:var(--text-primary); font-weight:600}
+.stats{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:16px}
+@media (max-width:900px){.stats{grid-template-columns:repeat(2,1fr)}}
+.tile{padding:16px 20px; position:relative; overflow:hidden}
+.tile::before{
+  content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
+  background:var(--bar,var(--brand-a));
+}
+.tile.total{--bar:var(--brand-b)}
+.tile.ok{--bar:var(--ok)}
+.tile.bad{--bar:var(--bad)}
+.tile .label{font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted)}
+.tile .value{font-size:30px; font-weight:700; margin-top:6px; font-variant-numeric:tabular-nums}
+.tile.ok .value{color:var(--ok)}
+.tile.bad .value{color:var(--bad)}
+.tile.donut{display:flex; align-items:center; gap:14px}
+.donut-svg{width:64px; height:64px; transform:rotate(-90deg); flex:none}
+.donut-svg circle{fill:none; stroke-width:7}
+.donut-svg .track{stroke:rgba(255,255,255,0.08)}
+.donut-legend{font-size:11px; color:var(--text-secondary); line-height:1.7}
+.donut-legend b{color:var(--text-primary)}
+.dk{display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:6px}
+.controls{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:12px 18px; margin-bottom:16px;
+}
+.search{
+  display:flex; align-items:center; gap:8px; flex:1; min-width:200px;
+  background:var(--glass-strong); border:1px solid var(--glass-border);
+  border-radius:10px; padding:8px 13px;
+}
+.search input{
+  border:none; outline:none; background:transparent; color:var(--text-primary);
+  font-size:12.5px; width:100%;
+}
+.search input::placeholder{color:var(--muted)}
+select.ctl{
+  background:var(--glass-strong); border:1px solid var(--glass-border);
+  color:var(--text-primary); border-radius:10px; padding:8px 12px;
+  font-size:12.5px; cursor:pointer;
+}
+.btn{
+  border:none; border-radius:10px; padding:9px 16px; font-size:12.5px; font-weight:600;
+  cursor:pointer; display:inline-flex; align-items:center; gap:6px; color:#0b0f1e;
+  background:linear-gradient(135deg, var(--brand-a), var(--brand-b));
+  transition:filter .15s, transform .15s;
+}
+.btn:hover{filter:brightness(1.08); transform:translateY(-1px)}
+.resultcount{font-size:11.5px; color:var(--muted); margin-left:auto}
+.table-card{padding:0; overflow:hidden}
+.table-scroll{overflow-x:auto}
+table{width:100%; border-collapse:collapse; min-width:920px}
+thead th{
+  position:sticky; top:0; background:rgba(15,20,35,0.86);
+  backdrop-filter:blur(12px);
+  color:var(--text-secondary); font-size:10.5px; text-transform:uppercase;
+  letter-spacing:.06em; text-align:left; padding:12px 14px; cursor:pointer;
+  border-bottom:1px solid var(--glass-border); white-space:nowrap; user-select:none;
+}
+thead th .si{opacity:.5; margin-left:3px}
+tbody td{padding:11px 14px; border-bottom:1px solid rgba(255,255,255,0.06); font-size:12.5px; vertical-align:middle}
+tbody tr.row{cursor:pointer; transition:background .15s}
+tbody tr.row:hover{background:rgba(255,255,255,0.045)}
+tbody tr.row.expanded{background:rgba(255,255,255,0.06)}
+.cell-id{font-family:Consolas,monospace; font-size:11px; color:var(--text-secondary)}
+.cell-payee b{display:block; color:var(--text-primary); font-size:12.5px; font-weight:600}
+.mono{font-variant-numeric:tabular-nums}
+.dash{color:var(--muted)}
+.badge{
+  display:inline-flex; align-items:center; gap:5px; padding:3px 10px;
+  border-radius:999px; font-size:11px; font-weight:700;
+}
+.badge.ok{background:var(--ok-bg); color:var(--ok)}
+.badge.bad{background:var(--bad-bg); color:var(--bad)}
+.rule-dots{display:flex; gap:4px}
+.rd{width:9px; height:9px; border-radius:2px; display:inline-block; flex:none}
+.rd.PASS{background:var(--ok)}
+.rd.FAIL{background:var(--bad)}
+.rd.UNABLE{background:var(--warn)}
+tr.detail-row{display:none}
+tr.detail-row.open{display:table-row}
+tr.detail-row td{
+  background:rgba(0,0,0,0.18); padding:0; border-bottom:1px solid rgba(255,255,255,0.08);
+}
+.detail-inner{padding:16px 22px; display:grid; grid-template-columns:1.1fr 0.9fr; gap:22px}
+@media (max-width:760px){.detail-inner{grid-template-columns:1fr}}
+.detail-group h4{
+  font-size:10.5px; text-transform:uppercase; letter-spacing:.07em;
+  color:var(--muted); margin:0 0 8px;
+}
+.rule-line{display:flex; gap:8px; align-items:baseline; margin:5px 0; font-size:12px}
+.rule-id{color:var(--text-secondary); min-width:100px; display:inline-block}
+.conf-tag{color:var(--muted); font-size:10.5px}
+.review-item{
+  border-left:3px solid var(--brand-a); background:rgba(167,139,250,0.08);
+  border-radius:0 8px 8px 0; padding:7px 11px; margin-bottom:7px; font-size:11.5px;
+}
+.review-item .m{color:var(--muted); font-size:10px; margin-top:2px}
+.raw-line{font-size:11px; color:var(--text-secondary); margin:3px 0; font-family:Consolas,monospace}
+.empty-row td{text-align:center; color:var(--muted); padding:40px 0}
+footer{
+  margin-top:18px; padding:14px 20px; font-size:11px; color:var(--muted);
+  display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;
+}
+::-webkit-scrollbar{width:10px; height:10px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.16); border-radius:6px}
+::-webkit-scrollbar-track{background:transparent}
 """
 
+_JS_TEMPLATE = r"""
+const RECORDS = __RECORDS_JSON__;
+const REVIEWS = __REVIEWS_JSON__;
+const RULE_COUNTS = __RULE_COUNTS_JSON__;
 
-def _badge(status: str) -> str:
-    color = _STATUS_COLOR.get(status, "#898781")
-    icon = _STATUS_ICON.get(status, "")
-    return (f'<span class="badge" style="background:{color}1a;color:{color}">'
-           f'{icon} {html.escape(status)}</span>')
+const RULE_ORDER = ['payee', 'amount_match', 'date', 'signature'];
+const RULE_LABEL = {payee:'Payee', amount_match:'Amount', date:'Date', signature:'Signature'};
 
+const reviewsByRecord = {};
+REVIEWS.forEach(function(rev){
+  if(!rev.record_id) return;
+  (reviewsByRecord[rev.record_id] = reviewsByRecord[rev.record_id] || []).push(rev);
+});
 
-def _rule_rows(rules: dict) -> str:
-    order = ["payee", "amount_match", "signature", "date"]
-    ids = [r for r in order if r in rules] + \
-        [r for r in rules if r not in order]
-    parts = []
-    for rid in ids:
-        r = rules[rid]
-        status = r.get("status", "")
-        color = _STATUS_COLOR.get(status, "#898781")
-        icon = _STATUS_ICON.get(status, "")
-        conf = r.get("confidence")
-        conf_txt = f" (conf {conf:.2f})" if isinstance(conf, (int, float)) else ""
-        parts.append(
-            '<div class="rule-line">'
-            f'<span class="rule-icon" style="color:{color}">{icon}</span>'
-            f'<span class="rule-id">{html.escape(rid)}</span>'
-            f'<span>{html.escape(r.get("message", ""))}{html.escape(conf_txt)}</span>'
-            '</div>')
-    return "".join(parts)
+let sortKey = 'processed_time';
+let sortAsc = false;
+let expandedId = null;
+let view = RECORDS.slice();
 
+function esc(s){
+  if(s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function fmt(v){
+  return (v === null || v === undefined || v === '') ? '<span class="dash">&mdash;</span>' : esc(v);
+}
+function ruleDots(rules){
+  rules = rules || {};
+  return RULE_ORDER.filter(function(k){ return rules[k]; }).map(function(k){
+    var st = rules[k].status || 'UNABLE';
+    return '<span class="rd ' + st + '" title="' + RULE_LABEL[k] + ': ' + st + '"></span>';
+  }).join('');
+}
+function rowHTML(rec, idx){
+  var verdictCls = rec.verdict === 'VALID' ? 'ok' : 'bad';
+  var verdictIcon = rec.verdict === 'VALID' ? '✓' : '✗';
+  var sig = rec.signature_detected === true ? 'Yes'
+    : rec.signature_detected === false ? 'No'
+    : '<span class="dash">&mdash;</span>';
+  return ''
+    + '<td class="mono">' + (idx + 1) + '</td>'
+    + '<td class="cell-id">' + esc(rec.record_id) + '</td>'
+    + '<td>' + esc(String(rec.processed_time || '').replace('T', ' ').slice(0, 19)) + '</td>'
+    + '<td>' + esc(rec.source_file) + '</td>'
+    + '<td><span class="badge ' + verdictCls + '">' + verdictIcon + ' ' + esc(rec.verdict) + '</span></td>'
+    + '<td class="cell-payee"><b>' + fmt(rec.payee) + '</b></td>'
+    + '<td class="mono">' + fmt(rec.amount_numeric) + '</td>'
+    + '<td class="mono">' + fmt(rec.cheque_date) + '</td>'
+    + '<td>' + sig + '</td>'
+    + '<td class="rule-dots">' + ruleDots(rec.rules) + '</td>';
+}
+function detailHTML(rec){
+  var rules = rec.rules || {};
+  var ruleHtml = RULE_ORDER.filter(function(k){ return rules[k]; }).map(function(k){
+    var r = rules[k];
+    var conf = (typeof r.confidence === 'number')
+      ? ' <span class="conf-tag">(conf ' + r.confidence.toFixed(2) + ')</span>' : '';
+    return '<div class="rule-line"><span class="rd ' + r.status + '"></span>'
+      + '<span class="rule-id">' + RULE_LABEL[k] + '</span>'
+      + '<span>' + esc(r.message || '') + conf + '</span></div>';
+  }).join('') || '<div class="rule-line dash">No rule data.</div>';
 
-def _fmt(value: Any) -> str:
-    return html.escape(str(value)) if value is not None else \
-        '<span class="mono" style="color:var(--muted)">&mdash;</span>'
+  var raw = rec.raw_values || {};
+  var rawHtml = Object.keys(raw).map(function(k){
+    return '<div class="raw-line">' + esc(k) + ': ' + esc(raw[k]) + '</div>';
+  }).join('') || '<div class="raw-line dash">No raw values captured.</div>';
 
+  var revs = reviewsByRecord[rec.record_id] || [];
+  var revHtml = revs.length ? revs.map(function(rv){
+    return '<div class="review-item">' + esc(rv.note || rv.status || '')
+      + '<div class="m">' + esc(rv.reviewer || '')
+      + (rv.status ? ' · ' + esc(rv.status) : '')
+      + (rv.timestamp ? ' · ' + esc(rv.timestamp) : '') + '</div></div>';
+  }).join('') : '<div class="raw-line dash">No review history.</div>';
 
-def generate_html(records: list[dict], reviews: list[dict] | None = None) -> str:
-    reviews = reviews or []
-    reviews_by_record = {}
-    for rev in reviews:
-        rid = rev.get("record_id")
-        if rid:
-            reviews_by_record.setdefault(rid, []).append(rev)
+  return '<div class="detail-inner">'
+    + '<div class="detail-group"><h4>Rule Results</h4>' + ruleHtml + '</div>'
+    + '<div class="detail-group"><h4>Raw Extracted Text</h4>' + rawHtml
+    + '<h4 style="margin-top:14px">Review History</h4>' + revHtml + '</div>'
+    + '</div>';
+}
+function render(){
+  var tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+  if(view.length === 0){
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="10">No cheques processed yet.</td></tr>';
+    document.getElementById('rc').textContent = 'Showing 0 of ' + RECORDS.length + ' records';
+    return;
+  }
+  view.forEach(function(rec, i){
+    var tr = document.createElement('tr');
+    tr.className = 'row' + (rec.record_id === expandedId ? ' expanded' : '');
+    tr.innerHTML = rowHTML(rec, i);
+    tr.addEventListener('click', function(){ toggleExpand(rec.record_id); });
+    tbody.appendChild(tr);
 
-    total = len(records)
-    valid = sum(1 for r in records if r.get("verdict") == "VALID")
-    invalid = total - valid
+    var dtr = document.createElement('tr');
+    dtr.className = 'detail-row' + (rec.record_id === expandedId ? ' open' : '');
+    var dtd = document.createElement('td');
+    dtd.colSpan = 10;
+    dtd.innerHTML = (rec.record_id === expandedId) ? detailHTML(rec) : '';
+    dtr.appendChild(dtd);
+    tbody.appendChild(dtr);
+  });
+  document.getElementById('rc').textContent = 'Showing ' + view.length + ' of ' + RECORDS.length + ' records';
+}
+function toggleExpand(id){
+  expandedId = (expandedId === id) ? null : id;
+  render();
+}
+function applyFilters(){
+  var q = document.getElementById('q').value.trim().toLowerCase();
+  var fv = document.getElementById('f-verdict').value;
+  var fy = document.getElementById('f-year').value;
+  view = RECORDS.filter(function(r){
+    if(fv && r.verdict !== fv) return false;
+    if(fy && String(r.cheque_date || '').slice(0, 4) !== fy) return false;
+    if(q){
+      var hay = [r.record_id, r.payee, r.source_file, r.payee_normalized].join(' ').toLowerCase();
+      if(hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+  sortView();
+}
+function sortView(){
+  view.sort(function(a, b){
+    var va = a[sortKey], vb = b[sortKey];
+    if(va === undefined || va === null) va = '';
+    if(vb === undefined || vb === null) vb = '';
+    if(va < vb) return sortAsc ? -1 : 1;
+    if(va > vb) return sortAsc ? 1 : -1;
+    return 0;
+  });
+  render();
+}
+function setSort(key){
+  if(sortKey === key){ sortAsc = !sortAsc; } else { sortKey = key; sortAsc = true; }
+  sortView();
+}
+function populateYearFilter(){
+  var years = {};
+  RECORDS.forEach(function(r){
+    var y = String(r.cheque_date || '').slice(0, 4);
+    if(y) years[y] = true;
+  });
+  var sel = document.getElementById('f-year');
+  Object.keys(years).sort().reverse().forEach(function(y){
+    var opt = document.createElement('option');
+    opt.value = y; opt.textContent = y;
+    sel.appendChild(opt);
+  });
+}
+function exportCSV(){
+  var cols = ['record_id', 'processed_time', 'source_file', 'verdict', 'payee',
+              'amount_numeric', 'cheque_date', 'signature_detected'];
+  var lines = [cols.join(',')];
+  view.forEach(function(r){
+    lines.push(cols.map(function(c){
+      var v = r[c];
+      if(v === null || v === undefined) v = '';
+      v = String(v).replace(/"/g, '""');
+      return '"' + v + '"';
+    }).join(','));
+  });
+  var blob = new Blob([lines.join('\n')], {type: 'text/csv'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'chequemate_export.csv';
+  a.click();
+}
+function renderDonut(){
+  var total = RULE_COUNTS.PASS + RULE_COUNTS.FAIL + RULE_COUNTS.UNABLE;
+  var svg = document.getElementById('donut');
+  var colors = {PASS: '#34d399', FAIL: '#fb7185', UNABLE: '#fbbf24'};
+  var C = 2 * Math.PI * 15.9;
+  var off = 0;
+  if(total > 0){
+    ['PASS', 'FAIL', 'UNABLE'].forEach(function(k){
+      var frac = RULE_COUNTS[k] / total;
+      if(frac <= 0) return;
+      var el = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      el.setAttribute('cx', 21); el.setAttribute('cy', 21); el.setAttribute('r', 15.9);
+      el.style.stroke = colors[k];
+      el.setAttribute('stroke-dasharray', (frac * C) + ' ' + (C - frac * C));
+      el.setAttribute('stroke-dashoffset', -off * C);
+      svg.appendChild(el);
+      off += frac;
+    });
+  }
+  document.getElementById('donut-legend').innerHTML =
+    '<span class="dk" style="background:#34d399"></span><b>' + RULE_COUNTS.PASS + '</b> Pass<br>'
+    + '<span class="dk" style="background:#fb7185"></span><b>' + RULE_COUNTS.FAIL + '</b> Fail<br>'
+    + '<span class="dk" style="background:#fbbf24"></span><b>' + RULE_COUNTS.UNABLE + '</b> Unable';
+}
 
-    tiles = f"""
-    <div class="tiles">
-      <div class="tile"><div class="label">Total Processed</div><div class="value">{total}</div></div>
-      <div class="tile"><div class="label">Valid</div><div class="value" style="color:{_STATUS_COLOR['VALID']}">{valid}</div></div>
-      <div class="tile"><div class="label">Invalid</div><div class="value" style="color:{_STATUS_COLOR['INVALID']}">{invalid}</div></div>
-    </div>
-    """
+document.getElementById('q').addEventListener('input', applyFilters);
+document.getElementById('f-verdict').addEventListener('change', applyFilters);
+document.getElementById('f-year').addEventListener('change', applyFilters);
+document.getElementById('export-btn').addEventListener('click', exportCSV);
+document.querySelectorAll('th[data-key]').forEach(function(th){
+  th.addEventListener('click', function(){ setSort(th.getAttribute('data-key')); });
+});
 
-    if not records:
-        body = '<div class="empty">No cheques processed yet.</div>'
-    else:
-        ordered = sorted(records, key=lambda r: r.get("processed_time", ""),
-                         reverse=True)
-        rows = []
-        for rec in ordered:
-            review_note = ""
-            revs = reviews_by_record.get(rec.get("record_id"))
-            if revs:
-                notes = "; ".join(html.escape(str(v.get("note", ""))) for v in revs)
-                review_note = f'<div class="rule-line" style="color:var(--muted)">reviewed: {notes}</div>'
-            rows.append(f"""
-            <tr>
-              <td class="mono">{html.escape(str(rec.get("record_id", "")))}</td>
-              <td class="mono">{html.escape(str(rec.get("processed_time", "")))}</td>
-              <td>{html.escape(str(rec.get("source_file", "")))}</td>
-              <td>{_badge(rec.get("verdict", ""))}</td>
-              <td>{_fmt(rec.get("payee"))}</td>
-              <td class="mono">{_fmt(rec.get("amount_numeric"))}</td>
-              <td class="mono">{_fmt(rec.get("cheque_date"))}</td>
-              <td>{"yes" if rec.get("signature_detected") else "no" if rec.get("signature_detected") is False else _fmt(None)}</td>
-              <td>
-                <details>
-                  <summary>rules</summary>
-                  {_rule_rows(rec.get("rules", {}))}
-                  {review_note}
-                </details>
-              </td>
-            </tr>""")
-        body = f"""
-        <table>
-          <thead>
-            <tr>
-              <th>Record ID</th><th>Processed</th><th>Source File</th><th>Verdict</th>
-              <th>Payee</th><th>Amount</th><th>Cheque Date</th><th>Signature</th><th>Rules</th>
-            </tr>
-          </thead>
-          <tbody>{"".join(rows)}</tbody>
-        </table>
-        """
+populateYearFilter();
+renderDonut();
+applyFilters();
+"""
 
-    generated = datetime.now().astimezone().isoformat()
-    return f"""<!DOCTYPE html>
+_HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ChequeMate Report</title>
-<style>{_CSS}</style>
+<style>__CSS__</style>
 </head>
 <body>
-<h1>ChequeMate Validation Report</h1>
-<p class="subtitle">Cumulative results across every cheque processed by this pipeline.</p>
-{tiles}
-{body}
-<footer>Generated {html.escape(generated)} &middot; model {html.escape(MODEL_ID)} &middot; ruleset {html.escape(RULE_SET_VERSION)}</footer>
+
+<header class="appbar glass">
+  <div class="brand"><span class="dot"></span><span class="word"><b>Cheque</b>Mate</span></div>
+  <div class="subtitle">Cumulative cheque validation report</div>
+  <div class="chips">
+    <span class="chip">&#128197; <b>__DATE_RANGE__</b></span>
+    <span class="chip">Ruleset <b>__RULESET__</b></span>
+    <span class="chip">Model <b>__MODEL__</b></span>
+    <span class="chip">Generated <b>__GENERATED__</b></span>
+  </div>
+</header>
+
+<section class="stats">
+  <div class="tile glass total"><div class="label">Total Processed</div><div class="value">__TOTAL__</div></div>
+  <div class="tile glass ok"><div class="label">Valid</div><div class="value">__VALID__</div></div>
+  <div class="tile glass bad"><div class="label">Invalid</div><div class="value">__INVALID__</div></div>
+  <div class="tile glass donut">
+    <svg class="donut-svg" viewBox="0 0 42 42" id="donut"><circle class="track" cx="21" cy="21" r="15.9"></circle></svg>
+    <div class="donut-legend" id="donut-legend"></div>
+  </div>
+</section>
+
+<section class="controls glass">
+  <div class="search">&#128269; <input id="q" placeholder="Search payee, record ID, source file..."></div>
+  <select class="ctl" id="f-verdict">
+    <option value="">All verdicts</option>
+    <option value="VALID">Valid</option>
+    <option value="INVALID">Invalid</option>
+  </select>
+  <select class="ctl" id="f-year">
+    <option value="">All years</option>
+  </select>
+  <button class="btn" id="export-btn">&#8595; Export CSV</button>
+  <span class="resultcount" id="rc"></span>
+</section>
+
+<section class="table-card glass">
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th data-key="record_id">Record ID <span class="si">&#8645;</span></th>
+          <th data-key="processed_time">Processed <span class="si">&#8645;</span></th>
+          <th data-key="source_file">Source File <span class="si">&#8645;</span></th>
+          <th data-key="verdict">Verdict <span class="si">&#8645;</span></th>
+          <th data-key="payee">Payee <span class="si">&#8645;</span></th>
+          <th data-key="amount_numeric">Amount <span class="si">&#8645;</span></th>
+          <th data-key="cheque_date">Cheque Date <span class="si">&#8645;</span></th>
+          <th>Signature</th>
+          <th>Rules</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  <span>ChequeMate Validation Report &middot; click a row to expand rule detail</span>
+  <span>Model __MODEL__ &middot; Ruleset __RULESET__</span>
+</footer>
+
+<script>__JS__</script>
 </body>
 </html>
 """
+
+
+def _parse_processed_time(value: Any) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _date_range_label(records: list[dict]) -> str:
+    dates = [d for d in (_parse_processed_time(r.get("processed_time"))
+                         for r in records) if d]
+    if not dates:
+        return "—"
+    lo, hi = min(dates), max(dates)
+    if lo.date() == hi.date():
+        return lo.strftime("%Y-%m-%d")
+    return f"{lo.strftime('%Y-%m-%d')} → {hi.strftime('%Y-%m-%d')}"
+
+
+def _rule_status_counts(records: list[dict]) -> dict:
+    counts = {"PASS": 0, "FAIL": 0, "UNABLE": 0}
+    for rec in records:
+        for rule in (rec.get("rules") or {}).values():
+            status = rule.get("status")
+            if status in counts:
+                counts[status] += 1
+    return counts
+
+
+def _json_for_script(value: Any) -> str:
+    """JSON for embedding inside a <script> tag, safe against premature close."""
+    return json.dumps(value, ensure_ascii=False, default=str).replace("</", "<\\/")
+
+
+def generate_html(records: list[dict], reviews: list[dict] | None = None) -> str:
+    reviews = reviews or []
+    total = len(records)
+    valid = sum(1 for r in records if r.get("verdict") == "VALID")
+    invalid = total - valid
+    rule_counts = _rule_status_counts(records)
+    date_range = _date_range_label(records)
+    generated = datetime.now().astimezone().isoformat(timespec="seconds")
+
+    js = (_JS_TEMPLATE
+          .replace("__RECORDS_JSON__", _json_for_script(records))
+          .replace("__REVIEWS_JSON__", _json_for_script(reviews))
+          .replace("__RULE_COUNTS_JSON__", _json_for_script(rule_counts)))
+
+    return (_HTML_TEMPLATE
+            .replace("__CSS__", _CSS)
+            .replace("__JS__", js)
+            .replace("__TOTAL__", str(total))
+            .replace("__VALID__", str(valid))
+            .replace("__INVALID__", str(invalid))
+            .replace("__DATE_RANGE__", html.escape(date_range))
+            .replace("__RULESET__", html.escape(RULE_SET_VERSION))
+            .replace("__MODEL__", html.escape(MODEL_ID))
+            .replace("__GENERATED__", html.escape(generated)))
 
 
 def regenerate_report() -> Path:
