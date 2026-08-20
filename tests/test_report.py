@@ -20,6 +20,7 @@ def azure_doc(**overrides):
                                   "/100 DOLLARS", "confidence": 0.91},
         "CheckDate": {"content": "17 08 2026", "confidence": 0.93},
         "PayerSignatures": {"valueSignature": "signed", "confidence": 0.88},
+        "Memo": {"valueString": "April Rent Payment", "confidence": 0.90},
     }
     for k, v in overrides.items():
         if v is None:

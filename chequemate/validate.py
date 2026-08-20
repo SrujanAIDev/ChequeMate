@@ -9,11 +9,12 @@ from .rules import (
     Config,
     check_amounts_match,
     check_date,
+    check_memo,
     check_payee,
     check_signature,
 )
 
-RULE_SET_VERSION = "1.0.0"
+RULE_SET_VERSION = "1.1.0"
 
 
 def validate(cheque: NormalizedCheque, cfg: Config | None = None,
@@ -24,6 +25,7 @@ def validate(cheque: NormalizedCheque, cfg: Config | None = None,
         check_amounts_match(cheque, cfg),
         check_signature(cheque, cfg),
         check_date(cheque, cfg, today=today),
+        check_memo(cheque, cfg),
     ]
     verdict = Verdict.VALID if all(r.status.value == "PASS" for r in results) \
         else Verdict.INVALID

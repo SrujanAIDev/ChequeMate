@@ -57,6 +57,7 @@ class NormalizedCheque:
     amount_words: Field         # Decimal
     cheque_date: Field          # date
     signature: Field            # bool (present / not present)
+    memo: Field = dc_field(default_factory=lambda: Field(name="memo"))  # str
     source_id: str | None = None
     raw_response: dict | None = dc_field(default=None, repr=False)
 

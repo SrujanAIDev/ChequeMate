@@ -217,18 +217,21 @@ def create_report_record(cheque: NormalizedCheque, validation: ValidationResult,
         "amount_words": _field_value(cheque.amount_words),
         "cheque_date": _field_value(cheque.cheque_date),
         "signature_detected": _field_value(cheque.signature),
+        "memo": _field_value(cheque.memo),
         "confidence": {
             "payee": rule_conf("payee"),
             "amount_numeric": rule_conf("amount_match"),
             "amount_words": rule_conf("amount_match"),
             "date": rule_conf("date"),
             "signature": rule_conf("signature"),
+            "memo": rule_conf("memo"),
         },
         "raw_values": {
             "payee": cheque.payee.raw_text,
             "amount_numeric": cheque.amount_numeric.raw_text,
             "amount_words": cheque.amount_words.raw_text,
             "date": cheque.cheque_date.raw_text,
+            "memo": cheque.memo.raw_text,
         },
         "rules": rules,
     }
@@ -453,8 +456,8 @@ const RECORDS = __RECORDS_JSON__;
 const REVIEWS = __REVIEWS_JSON__;
 const RULE_COUNTS = __RULE_COUNTS_JSON__;
 
-const RULE_ORDER = ['payee', 'amount_match', 'date', 'signature'];
-const RULE_LABEL = {payee:'Payee', amount_match:'Amount', date:'Date', signature:'Signature'};
+const RULE_ORDER = ['payee', 'amount_match', 'date', 'signature', 'memo'];
+const RULE_LABEL = {payee:'Payee', amount_match:'Amount', date:'Date', signature:'Signature', memo:'Memo'};
 
 const reviewsByRecord = {};
 REVIEWS.forEach(function(rev){
@@ -498,6 +501,7 @@ function rowHTML(rec, idx){
     + '<td class="cell-payee"><b>' + fmt(rec.payee) + '</b></td>'
     + '<td class="mono">' + fmt(rec.amount_numeric) + '</td>'
     + '<td class="mono">' + fmt(rec.cheque_date) + '</td>'
+    + '<td>' + fmt(rec.memo) + '</td>'
     + '<td>' + sig + '</td>'
     + '<td class="rule-dots">' + ruleDots(rec.rules) + '</td>';
 }
@@ -535,7 +539,7 @@ function render(){
   var tbody = document.getElementById('tbody');
   tbody.innerHTML = '';
   if(view.length === 0){
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="10">No cheques processed yet.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="11">No cheques processed yet.</td></tr>';
     document.getElementById('rc').textContent = 'Showing 0 of ' + RECORDS.length + ' records';
     return;
   }
@@ -549,7 +553,7 @@ function render(){
     var dtr = document.createElement('tr');
     dtr.className = 'detail-row' + (rec.record_id === expandedId ? ' open' : '');
     var dtd = document.createElement('td');
-    dtd.colSpan = 10;
+    dtd.colSpan = 11;
     dtd.innerHTML = (rec.record_id === expandedId) ? detailHTML(rec) : '';
     dtr.appendChild(dtd);
     tbody.appendChild(dtr);
@@ -605,7 +609,7 @@ function populateYearFilter(){
 }
 function exportCSV(){
   var cols = ['record_id', 'processed_time', 'source_file', 'verdict', 'payee',
-              'amount_numeric', 'cheque_date', 'signature_detected'];
+              'amount_numeric', 'cheque_date', 'memo', 'signature_detected'];
   var lines = [cols.join(',')];
   view.forEach(function(r){
     lines.push(cols.map(function(c){
@@ -717,6 +721,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
           <th data-key="payee">Payee <span class="si">&#8645;</span></th>
           <th data-key="amount_numeric">Amount <span class="si">&#8645;</span></th>
           <th data-key="cheque_date">Cheque Date <span class="si">&#8645;</span></th>
+          <th data-key="memo">Memo <span class="si">&#8645;</span></th>
           <th>Signature</th>
           <th>Rules</th>
         </tr>

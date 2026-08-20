@@ -21,6 +21,7 @@ class Config:
     amount_tolerance: Decimal = Decimal("0.00")
     max_age_months: int = 6
     reject_postdated: bool = True
+    require_memo: bool = True
 
 
 def _unable(rule_id: str, field) -> RuleResult:
@@ -116,4 +117,17 @@ def check_date(cheque: NormalizedCheque, cfg: Config,
                       f"{cfg.max_age_months} months{note}", f.confidence)
 
 
-ALL_RULES = (check_payee, check_amounts_match, check_signature, check_date)
+def check_memo(cheque: NormalizedCheque, cfg: Config) -> RuleResult:
+    f = cheque.memo
+    if f.ok:
+        return RuleResult("memo", RuleStatus.PASS,
+                          f"memo present: {f.raw_text!r}", f.confidence)
+    if cfg.require_memo:
+        return RuleResult("memo", RuleStatus.FAIL,
+                          "memo is missing or blank — a memo is required",
+                          f.confidence)
+    return _unable("memo", f)
+
+
+ALL_RULES = (check_payee, check_amounts_match, check_signature, check_date,
+            check_memo)

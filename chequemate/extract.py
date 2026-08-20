@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import NormalizedCheque
+from .models import Field, NormalizedCheque, ParseStatus
 from .normalize import (
     normalize_amount_numeric,
     normalize_amount_words,
@@ -26,7 +26,18 @@ FIELD_MAP = {
     "WordAmount": "amount_words",
     "CheckDate": "cheque_date",
     "PayerSignatures": "signature",
+    "Memo": "memo",
 }
+
+
+def normalize_memo(text: str | None, confidence: float | None = None,
+                   bbox: list | None = None) -> Field:
+    """Blank/absent memo is a real ABSENT — check_memo turns that into a FAIL."""
+    if not text or not text.strip():
+        return Field("memo", parse_status=ParseStatus.ABSENT, raw_text=text,
+                     confidence=confidence, bbox=bbox)
+    return Field("memo", value=text.strip(), raw_text=text,
+                 parse_status=ParseStatus.OK, confidence=confidence, bbox=bbox)
 
 
 def _field_dict(field: Any) -> dict:
@@ -104,6 +115,7 @@ def to_normalized(document: Any, source_id: str | None = None,
         signature=normalize_signature(
             _text(sig_raw), detected=_signature_detected(sig_raw or None),
             **_meta(sig_raw)),
+        memo=normalize_memo(_text(get("Memo")), **_meta(get("Memo"))),
         source_id=source_id,
         raw_response=raw,
     )

@@ -23,6 +23,7 @@ def azure_doc(**overrides):
                                   "/100 DOLLARS", "confidence": 0.91},
         "CheckDate": {"content": "17 08 2026", "confidence": 0.93},
         "PayerSignatures": {"valueSignature": "signed", "confidence": 0.88},
+        "Memo": {"valueString": "April Rent Payment", "confidence": 0.90},
     }
     for k, v in overrides.items():
         if v is None:
@@ -182,6 +183,22 @@ def test_strictness_is_configurable():
     doc = azure_doc(PayTo={"valueString": "Town of Whitbv"})  # OCR y->v
     cfg = Config(payee_edit_tolerance=1)
     assert validate(to_normalized(doc), cfg, today=TODAY).verdict is Verdict.VALID
+
+
+def test_blank_memo_fails_and_invalidates():
+    doc = azure_doc(Memo=None)
+    r = validate(to_normalized(doc), today=TODAY)
+    (f,) = r.failures
+    assert f.rule_id == "memo" and f.status is RuleStatus.FAIL
+    assert r.verdict is Verdict.INVALID
+
+
+def test_memo_present_passes():
+    doc = azure_doc(Memo={"valueString": "Water bill Q3"})
+    r = validate(to_normalized(doc), today=TODAY)
+    assert r.verdict is Verdict.VALID
+    memo_result = next(f for f in r.rules if f.rule_id == "memo")
+    assert memo_result.status is RuleStatus.PASS
 
 
 # --- signature diagnostics --------------------------------------------------
