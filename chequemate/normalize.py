@@ -158,6 +158,14 @@ _CENTS_FRACTION = re.compile(
     r"(?P<num>\d{1,2}|none|no|xx|zero)?\s*/\s*(?P<den>100|00|xx)",
     re.IGNORECASE,
 )
+# OCR very often drops the '/' in the printed '.../100 DOLLARS' cents suffix,
+# leaving a bare '100' (optionally preceded by its handwritten numerator)
+# floating in the text - e.g. '36 100 DOLLARS' for '36/100', or '- 100
+# DOLLARS' when the numerator itself was lost too. A bare '100' token is an
+# unambiguous denominator - cheques always print that exact suffix - so
+# recovering it is safe, unlike a bare small number with no '100' nearby
+# (still rejected below: that really is ambiguous).
+_TRAILING_CENTS_100 = re.compile(r"(?P<num>\d{1,2})?[^\w]{0,4}\b100\b")
 _CENT_WORD = re.compile(r"\bcents?\b", re.IGNORECASE)
 
 
@@ -228,6 +236,11 @@ def normalize_amount_words(raw: str | None, **kw) -> Field:
         num = (m.group("num") or "").lower()
         cents = int(num) if num.isdigit() else 0
         lowered = lowered[: m.start()] + " " + lowered[m.end():]
+    else:
+        m2 = _TRAILING_CENTS_100.search(lowered)
+        if m2:
+            cents = int(m2.group("num")) if m2.group("num") else 0
+            lowered = lowered[: m2.start()] + " " + lowered[m2.end():]
 
     # Any digit left after the fraction is removed is contamination: the OCR
     # merged the courtesy amount into the legal line, or misread a word.

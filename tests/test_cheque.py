@@ -107,18 +107,33 @@ def test_leading_the_is_not_a_spelling_error():
     assert validate(to_normalized(doc), today=TODAY).verdict is Verdict.VALID
 
 
-def test_misspelled_payee_fails():
-    doc = azure_doc(PayTo={"valueString": "Town of Witby"})
+def test_minor_payee_typo_is_tolerated():
+    """Real cheque OCR routinely misreads 'Whitby' by 1-2 characters
+    (whitty, whitley, white...) — a single dropped letter must not flip a
+    legitimate cheque to INVALID."""
+    doc = azure_doc(PayTo={"valueString": "Town of Witby"})  # missing 'h'
     r = validate(to_normalized(doc), today=TODAY)
-    assert r.verdict is Verdict.INVALID
-    (f,) = r.failures
-    assert f.rule_id == "payee" and "misspelled" in f.evidence
+    assert r.verdict is Verdict.VALID
+    payee_result = next(f for f in r.rules if f.rule_id == "payee")
+    assert payee_result.status is RuleStatus.PASS
 
 
 def test_wrong_payee_fails():
     doc = azure_doc(PayTo={"valueString": "City of Oshawa"})
     (f,) = validate(to_normalized(doc), today=TODAY).failures
-    assert "different payee" in f.evidence
+    assert f.rule_id == "payee" and "does not reference" in f.evidence
+
+
+def test_bank_name_in_payee_field_is_unable_not_fail():
+    """Azure's PayTo extraction sometimes grabs the drawee bank's own
+    letterhead instead of the handwritten payee line — that's a missed
+    extraction, not proof of a wrong payee, so it should read UNABLE."""
+    doc = azure_doc(PayTo={
+        "valueString": "ROYAL BANK OF CANADA FINCH & MCCOWAN BRANCH"})
+    r = validate(to_normalized(doc), today=TODAY)
+    payee_result = next(f for f in r.rules if f.rule_id == "payee")
+    assert payee_result.status is RuleStatus.UNABLE
+    assert "bank" in payee_result.evidence.lower()
 
 
 def test_amount_mismatch_fails():
@@ -127,13 +142,16 @@ def test_amount_mismatch_fails():
     assert f.rule_id == "amount_match" and "BEA s.28(2)" in f.evidence
 
 
-def test_missing_signature_field_is_unable_not_pass():
-    """Cheque 2: no PayerSignatures key at all."""
+def test_missing_signature_field_is_unable_and_does_not_invalidate():
+    """Cheque 2: no PayerSignatures key at all. UNABLE means 'couldn't tell',
+    not 'known to be wrong' — it still needs a human look (surfaced via
+    .failures) but must not by itself flip an otherwise-clean cheque to
+    INVALID."""
     doc = azure_doc(PayerSignatures=None)
     r = validate(to_normalized(doc), today=TODAY)
     (f,) = r.failures
     assert f.rule_id == "signature" and f.status is RuleStatus.UNABLE
-    assert r.verdict is Verdict.INVALID
+    assert r.verdict is Verdict.VALID
 
 
 def test_signature_read_from_bounding_regions_only():
@@ -164,10 +182,26 @@ def test_one_day_past_six_months_fails():
     assert f.rule_id == "date"
 
 
-def test_postdated_cheque_fails():
+def test_postdated_cheque_passes_but_is_labelled():
+    """Post-dated tax instalment cheques are a normal, expected category —
+    they must PASS (and not invalidate the cheque), but the message still
+    flags them for routing to post-dated batch handling."""
     doc = azure_doc(CheckDate={"content": "01 12 2026"})
-    (f,) = validate(to_normalized(doc), today=TODAY).failures
-    assert "post-dated" in f.evidence
+    r = validate(to_normalized(doc), today=TODAY)
+    date_result = next(f for f in r.rules if f.rule_id == "date")
+    assert date_result.status is RuleStatus.PASS
+    assert "post-dated" in date_result.evidence
+    assert "post-dated batch" in date_result.evidence
+    assert r.verdict is Verdict.VALID
+
+
+def test_postdated_cheque_still_fails_when_configured_strict():
+    doc = azure_doc(CheckDate={"content": "01 12 2026"})
+    cfg = Config(reject_postdated=True)
+    r = validate(to_normalized(doc), cfg, today=TODAY)
+    (f,) = r.failures
+    assert f.rule_id == "date" and "post-dated" in f.evidence
+    assert r.verdict is Verdict.INVALID
 
 
 def test_multiple_failures_all_reported():
@@ -279,10 +313,12 @@ def test_no_fuzzy_snapping_on_unknown_words():
             is ParseStatus.UNPARSEABLE
 
 
-def test_payee_of_is_significant():
-    """'of' is NOT stripped - Town Whitby is not Town of Whitby."""
+def test_payee_matches_on_town_name_alone():
+    """Real payees are phrased many ways ('Town Whitby' missing 'of',
+    'Whitby Taxes', a drawer's name printed next to 'Town of Whitby') — the
+    town name itself is what matters, not exact whole-string phrasing."""
     doc = azure_doc(PayTo={"valueString": "Town Whitby"})
-    assert validate(to_normalized(doc), today=TODAY).verdict is Verdict.INVALID
+    assert validate(to_normalized(doc), today=TODAY).verdict is Verdict.VALID
 
 
 def test_cents_only_amount():

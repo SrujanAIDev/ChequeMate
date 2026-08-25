@@ -435,6 +435,20 @@ tr.detail-row td{
 .rule-line{display:flex; gap:8px; align-items:baseline; margin:5px 0; font-size:12px}
 .rule-id{color:var(--text-secondary); min-width:100px; display:inline-block}
 .conf-tag{color:var(--muted); font-size:10.5px}
+.plain-line{display:flex; gap:9px; align-items:flex-start; margin:8px 0; font-size:13px; line-height:1.5; color:var(--text-primary)}
+.plain-line .rd{margin-top:6px}
+.ready-line{font-size:13px; line-height:1.5; color:var(--ok); font-weight:600}
+.sop-block{margin-bottom:16px}
+.sop-block:last-child{margin-bottom:0}
+.sop-block h5{font-size:12px; font-weight:700; color:var(--text-primary); margin:0 0 6px}
+.sop-steps{margin:0; padding-left:18px; font-size:12px; color:var(--text-secondary); line-height:1.65}
+.sop-steps li{margin:4px 0}
+.detail-meta{grid-column:1 / -1; margin-top:4px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.08)}
+.detail-meta summary{cursor:pointer; font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted)}
+.detail-meta summary:hover{color:var(--text-secondary)}
+.detail-meta .meta-body{display:grid; grid-template-columns:1.1fr 0.9fr; gap:22px; margin-top:12px}
+.detail-meta h5{font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 8px}
+@media (max-width:760px){.detail-meta .meta-body{grid-template-columns:1fr}}
 .review-item{
   border-left:3px solid var(--brand-a); background:rgba(167,139,250,0.08);
   border-radius:0 8px 8px 0; padding:7px 11px; margin-bottom:7px; font-size:11.5px;
@@ -449,6 +463,72 @@ footer{
 ::-webkit-scrollbar{width:10px; height:10px}
 ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.16); border-radius:6px}
 ::-webkit-scrollbar-track{background:transparent}
+
+/* ── view-cheque button + full-screen lightbox ── */
+.view-btn{
+  border:1px solid var(--glass-border); background:var(--glass-strong);
+  color:var(--text-secondary); border-radius:8px; padding:5px 10px;
+  font-size:11px; font-weight:600; cursor:pointer; white-space:nowrap;
+  transition:background .15s, color .15s;
+}
+.view-btn:hover{background:rgba(255,255,255,0.14); color:var(--text-primary)}
+.lightbox{
+  position:fixed; inset:0; z-index:500; display:none;
+  align-items:center; justify-content:center; flex-direction:column;
+  background:rgba(6,8,14,0.94); backdrop-filter:blur(6px);
+}
+.lightbox.open{display:flex}
+.lightbox .lb-frame{
+  position:relative; display:flex; align-items:center; justify-content:center;
+  width:100%; height:100%; padding:60px 90px; overflow:auto;
+}
+.lightbox img{
+  max-width:100%; max-height:100%; object-fit:contain; border-radius:10px;
+  box-shadow:0 20px 60px rgba(0,0,0,0.55); background:#fff;
+  transition:transform .15s ease; transform-origin:center center;
+}
+.lightbox .missing{
+  color:var(--muted); font-size:14px; text-align:center; max-width:320px;
+}
+.lightbox .close{
+  position:absolute; top:18px; right:22px; background:var(--glass-strong);
+  border:1px solid var(--glass-border); color:var(--text-primary);
+  width:38px; height:38px; border-radius:50%; font-size:18px; cursor:pointer;
+  line-height:1; z-index:2;
+}
+.lightbox .close:hover{background:rgba(255,255,255,0.16)}
+.lightbox .zoom-controls{
+  position:absolute; top:18px; left:22px; z-index:2; display:flex; align-items:center;
+  gap:2px; background:var(--glass-strong); border:1px solid var(--glass-border);
+  border-radius:999px; padding:4px;
+}
+.lightbox .zoom-controls button{
+  width:34px; height:34px; border-radius:50%; border:none; background:transparent;
+  color:var(--text-primary); font-size:18px; cursor:pointer; line-height:1;
+}
+.lightbox .zoom-controls button:hover:not(:disabled){background:rgba(255,255,255,0.16)}
+.lightbox .zoom-controls button:disabled{opacity:.35; cursor:default}
+.lightbox .zoom-level{
+  min-width:44px; text-align:center; font-size:11px; color:var(--text-secondary);
+  font-variant-numeric:tabular-nums;
+}
+.lightbox .nav{
+  position:absolute; top:50%; transform:translateY(-50%);
+  background:var(--glass-strong); border:1px solid var(--glass-border);
+  color:var(--text-primary); width:52px; height:52px; border-radius:50%;
+  font-size:24px; cursor:pointer; line-height:1;
+}
+.lightbox .nav:hover{background:rgba(255,255,255,0.16)}
+.lightbox .nav.prev{left:16px}
+.lightbox .nav.next{right:16px}
+.lightbox .nav.hidden{display:none}
+.lightbox .lb-cap{
+  color:var(--text-secondary); font-size:12.5px; text-align:center;
+  margin-top:4px; padding:0 20px;
+}
+.lightbox .lb-counter{
+  color:var(--muted); font-size:11px; margin-top:4px;
+}
 """
 
 _JS_TEMPLATE = r"""
@@ -458,6 +538,105 @@ const RULE_COUNTS = __RULE_COUNTS_JSON__;
 
 const RULE_ORDER = ['payee', 'amount_match', 'date', 'signature', 'memo'];
 const RULE_LABEL = {payee:'Payee', amount_match:'Amount', date:'Date', signature:'Signature', memo:'Memo'};
+
+/* ── plain-language + Service Whitby SOP guidance for reception staff ──
+   Static text only — driven purely by each rule's status/message already
+   in the record. No LLM calls, no network, no cheque image involved. */
+const RULE_GUIDANCE = {
+  payee: {
+    pass: "✓ Made payable to the Town of Whitby.",
+    fail: function(msg){
+      return msg.indexOf('misspelled') !== -1
+        ? "The payee name looks misspelled — it doesn't exactly match 'Town of Whitby'."
+        : "This cheque isn't made out to the Town of Whitby — it may be meant for someone else.";
+    },
+    steps: [
+      "This fails the completeness check — the cheque must be payable to the Town of Whitby.",
+      "Place the cheque in the 'Problem Cheques' folder in the filing cabinet behind the Service Desk.",
+      "Look up the customer's contact info in Vailtech (Journals).",
+      "If contact info exists, call the customer to correct it or send a new cheque.",
+      "Create a Cheque Return Letter, photocopy the letter + cheque into the 'Cheque Returned to Sender Requesting More Information' folder, and mail the original cheque + letter to the address on the Roll number."
+    ]
+  },
+  amount_match: {
+    pass: "✓ The written amount and the number amount agree.",
+    fail: "The amount in words doesn't match the number amount. By law the written words are the amount that counts.",
+    steps: [
+      "This fails the completeness check — written and numeric amounts must match. Do not enter the payment.",
+      "If the customer is at the counter, have them correct the cheque and initial the change.",
+      "Otherwise place it in the 'Problem Cheques' folder and contact the customer for a corrected or replacement cheque (Vailtech → Journals for contact info)."
+    ]
+  },
+  date: {
+    pass: function(msg){
+      return msg.indexOf('post-dated') !== -1
+        ? "✓ Date accepted — this cheque is post-dated (future-dated) and should go to the post-dated batch process."
+        : "✓ The cheque date is valid and current.";
+    },
+    fail: function(msg){
+      if(msg.indexOf('stale') !== -1) return "This cheque is stale-dated — it's more than 6 months old and the bank won't accept it.";
+      if(msg.indexOf('post-dated') !== -1) return "This cheque is post-dated — it's dated in the future and can't be cashed yet.";
+      return "This cheque's date did not pass validation.";
+    },
+    steps: function(msg){
+      if(msg.indexOf('stale') !== -1) return [
+        "Do not deposit a stale-dated cheque.",
+        "Place it in the 'Problem Cheques' folder and contact the customer for a replacement cheque; use the Cheque Return Letter process if there's no contact info."
+      ];
+      if(msg.indexOf('post-dated') !== -1) return [
+        "Date-stamp it on the day received.",
+        "If it's a tax payment, check whether the post-dated date is an instalment due date.",
+        "If it IS an instalment due date, file it in the correct due-date box in the bottom drawer of the Service Whitby filing cabinet.",
+        "If it is NOT, file it in the 'Post Dated Cheques' folder, then enter it via Vailtech → Journals → Post Dated Cheques → Enter Cheques when batching."
+      ];
+      return ["Manually review this item before processing."];
+    },
+    unable: "We couldn't read the cheque date — please check it by hand.",
+    unableSteps: ["Manually confirm the date before processing."]
+  },
+  signature: {
+    pass: "✓ A signature was detected.",
+    fail: "No signature was found — the cheque appears to be unsigned.",
+    steps: [
+      "An unsigned cheque is incomplete and cannot be processed.",
+      "Place it in the 'Problem Cheques' folder and contact the customer to sign or replace it (Cheque Return Letter process if there's no contact info)."
+    ],
+    unable: "The signature was unclear — please confirm it by hand.",
+    unableSteps: ["Visually confirm a signature is present before processing."]
+  },
+  memo: {
+    pass: "✓ A memo/note is present, showing what the payment is for.",
+    fail: "There's no memo on the cheque, so it's unclear what this payment is for.",
+    steps: [
+      "Place the cheque in the 'Cheque Missing Information' folder in the filing cabinet.",
+      "Scan a copy of the cheque.",
+      "Email pmt-investigation@whitby.ca using the email template and attach the scan.",
+      "If a department claims it, route it to them; if not, continue the missing-information exception process."
+    ]
+  }
+};
+
+function guidanceText(ruleId, status, message){
+  var g = RULE_GUIDANCE[ruleId];
+  var msg = (message || '').toLowerCase();
+  if(g){
+    if(status === 'PASS') return typeof g.pass === 'function' ? g.pass(msg) : g.pass;
+    if(status === 'UNABLE' && g.unable) return g.unable;
+    if(status === 'FAIL' && g.fail) return typeof g.fail === 'function' ? g.fail(msg) : g.fail;
+  }
+  // No guidance was specified for this rule/status combination (e.g. an
+  // UNABLE on payee/amount_match/memo) — surface the rule's own message
+  // rather than fabricating text that wasn't given.
+  return message || ((RULE_LABEL[ruleId] || ruleId) + ' could not be evaluated.');
+}
+function guidanceSteps(ruleId, status, message){
+  var g = RULE_GUIDANCE[ruleId];
+  var msg = (message || '').toLowerCase();
+  if(!g || status === 'PASS') return [];
+  if(status === 'UNABLE' && g.unableSteps) return g.unableSteps;
+  if(status === 'FAIL' && g.steps) return typeof g.steps === 'function' ? g.steps(msg) : g.steps;
+  return ['Manually review this item before processing.'];
+}
 
 const reviewsByRecord = {};
 REVIEWS.forEach(function(rev){
@@ -469,6 +648,12 @@ let sortKey = 'processed_time';
 let sortAsc = false;
 let expandedId = null;
 let view = RECORDS.slice();
+
+// Cheque images are never embedded in this file (privacy: nothing copies
+// the image bytes anywhere) — this is a relative path to the source
+// images folder alongside reports/, resolved live by the browser.
+const IMAGE_DIR = '../cheques/';
+let lightboxIndex = 0;
 
 function esc(s){
   if(s === null || s === undefined) return '';
@@ -497,6 +682,9 @@ function rowHTML(rec, idx){
     + '<td class="cell-id">' + esc(rec.record_id) + '</td>'
     + '<td>' + esc(String(rec.processed_time || '').replace('T', ' ').slice(0, 19)) + '</td>'
     + '<td>' + esc(rec.source_file) + '</td>'
+    + '<td><button class="view-btn" data-id="' + esc(rec.record_id) + '" '
+      + 'onclick="event.stopPropagation(); openLightbox(this.dataset.id);">'
+      + '&#128247; View Cheque</button></td>'
     + '<td><span class="badge ' + verdictCls + '">' + verdictIcon + ' ' + esc(rec.verdict) + '</span></td>'
     + '<td class="cell-payee"><b>' + fmt(rec.payee) + '</b></td>'
     + '<td class="mono">' + fmt(rec.amount_numeric) + '</td>'
@@ -507,14 +695,31 @@ function rowHTML(rec, idx){
 }
 function detailHTML(rec){
   var rules = rec.rules || {};
-  var ruleHtml = RULE_ORDER.filter(function(k){ return rules[k]; }).map(function(k){
+  var ids = RULE_ORDER.filter(function(k){ return rules[k]; });
+
+  var meaningHtml = ids.map(function(k){
     var r = rules[k];
-    var conf = (typeof r.confidence === 'number')
-      ? ' <span class="conf-tag">(conf ' + r.confidence.toFixed(2) + ')</span>' : '';
-    return '<div class="rule-line"><span class="rd ' + r.status + '"></span>'
-      + '<span class="rule-id">' + RULE_LABEL[k] + '</span>'
-      + '<span>' + esc(r.message || '') + conf + '</span></div>';
-  }).join('') || '<div class="rule-line dash">No rule data.</div>';
+    return '<div class="plain-line"><span class="rd ' + r.status + '"></span>'
+      + '<span>' + esc(guidanceText(k, r.status, r.message)) + '</span></div>';
+  }).join('') || '<div class="plain-line dash">No rule data.</div>';
+
+  var failing = ids.filter(function(k){ return rules[k].status !== 'PASS'; });
+  var actionHtml;
+  if(!ids.length){
+    actionHtml = '<div class="plain-line dash">No rule data.</div>';
+  } else if(!failing.length){
+    actionHtml = '<div class="ready-line">✓ Cheque is complete — date-stamp and classify it '
+      + 'by payment type (tax, Town invoice, tax certificate, or miscellaneous).</div>';
+  } else {
+    actionHtml = failing.map(function(k){
+      var r = rules[k];
+      var steps = guidanceSteps(k, r.status, r.message).map(function(s){
+        return '<li>' + esc(s) + '</li>';
+      }).join('');
+      return '<div class="sop-block"><h5>' + esc(RULE_LABEL[k] || k) + '</h5>'
+        + '<ul class="sop-steps">' + steps + '</ul></div>';
+    }).join('');
+  }
 
   var raw = rec.raw_values || {};
   var rawHtml = Object.keys(raw).map(function(k){
@@ -530,16 +735,22 @@ function detailHTML(rec){
   }).join('') : '<div class="raw-line dash">No review history.</div>';
 
   return '<div class="detail-inner">'
-    + '<div class="detail-group"><h4>Rule Results</h4>' + ruleHtml + '</div>'
-    + '<div class="detail-group"><h4>Raw Extracted Text</h4>' + rawHtml
-    + '<h4 style="margin-top:14px">Review History</h4>' + revHtml + '</div>'
+    + '<div class="detail-group"><h4>What this means</h4>' + meaningHtml + '</div>'
+    + '<div class="detail-group"><h4>What to do next</h4>' + actionHtml + '</div>'
+    + '<details class="detail-meta">'
+    + '<summary>Raw extracted text &amp; review history</summary>'
+    + '<div class="meta-body">'
+    + '<div><h5>Raw extracted text</h5>' + rawHtml + '</div>'
+    + '<div><h5>Review history</h5>' + revHtml + '</div>'
+    + '</div>'
+    + '</details>'
     + '</div>';
 }
 function render(){
   var tbody = document.getElementById('tbody');
   tbody.innerHTML = '';
   if(view.length === 0){
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="11">No cheques processed yet.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="12">No cheques processed yet.</td></tr>';
     document.getElementById('rc').textContent = 'Showing 0 of ' + RECORDS.length + ' records';
     return;
   }
@@ -553,7 +764,7 @@ function render(){
     var dtr = document.createElement('tr');
     dtr.className = 'detail-row' + (rec.record_id === expandedId ? ' open' : '');
     var dtd = document.createElement('td');
-    dtd.colSpan = 11;
+    dtd.colSpan = 12;
     dtd.innerHTML = (rec.record_id === expandedId) ? detailHTML(rec) : '';
     dtr.appendChild(dtd);
     tbody.appendChild(dtr);
@@ -625,6 +836,208 @@ function exportCSV(){
   a.download = 'chequemate_export.csv';
   a.click();
 }
+
+/* ── minimal dependency-free .xlsx (OOXML) writer ──
+   No SheetJS, no CDN, nothing leaves this file. Cells are written as
+   inline strings (no shared-strings table) so values round-trip exactly
+   as shown, with no numeric/locale coercion. The zip itself is store-only
+   (no compression) — a hand-rolled ZIP writer with correct CRC32, local
+   headers, central directory and EOCD is enough for Excel/LibreOffice to
+   open it with no format-mismatch warning. */
+var CRC_TABLE = (function(){
+  var table = new Uint32Array(256);
+  for(var n = 0; n < 256; n++){
+    var c = n;
+    for(var k = 0; k < 8; k++){
+      c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    }
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+function crc32(bytes){
+  var crc = 0xFFFFFFFF;
+  for(var i = 0; i < bytes.length; i++){
+    crc = CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+function pushU16(arr, n){ arr.push(n & 0xFF, (n >>> 8) & 0xFF); }
+function pushU32(arr, n){
+  arr.push(n & 0xFF, (n >>> 8) & 0xFF, (n >>> 16) & 0xFF, (n >>> 24) & 0xFF);
+}
+function pushBytes(arr, bytes){ for(var i = 0; i < bytes.length; i++) arr.push(bytes[i]); }
+
+function zipFiles(files){
+  var encoder = new TextEncoder();
+  var localChunks = [];
+  var central = [];
+  var offset = 0;
+
+  files.forEach(function(f){
+    var nameBytes = encoder.encode(f.name);
+    var dataBytes = encoder.encode(f.data);
+    var crc = crc32(dataBytes);
+    var size = dataBytes.length;
+
+    var lh = [];
+    pushU32(lh, 0x04034b50);
+    pushU16(lh, 20);    // version needed to extract
+    pushU16(lh, 0);     // general purpose flag
+    pushU16(lh, 0);     // method: 0 = store (no compression)
+    pushU16(lh, 0);     // mod time
+    pushU16(lh, 0x21);  // mod date: 1980-01-01
+    pushU32(lh, crc);
+    pushU32(lh, size);  // compressed size == uncompressed (store-only)
+    pushU32(lh, size);
+    pushU16(lh, nameBytes.length);
+    pushU16(lh, 0);     // extra field length
+    pushBytes(lh, nameBytes);
+    var lhBytes = new Uint8Array(lh);
+    localChunks.push(lhBytes, dataBytes);
+
+    var ch = [];
+    pushU32(ch, 0x02014b50);
+    pushU16(ch, 20);    // version made by
+    pushU16(ch, 20);    // version needed to extract
+    pushU16(ch, 0);     // general purpose flag
+    pushU16(ch, 0);     // method
+    pushU16(ch, 0);     // mod time
+    pushU16(ch, 0x21);  // mod date
+    pushU32(ch, crc);
+    pushU32(ch, size);
+    pushU32(ch, size);
+    pushU16(ch, nameBytes.length);
+    pushU16(ch, 0);     // extra field length
+    pushU16(ch, 0);     // comment length
+    pushU16(ch, 0);     // disk number start
+    pushU16(ch, 0);     // internal file attributes
+    pushU32(ch, 0);     // external file attributes
+    pushU32(ch, offset); // offset of local header
+    pushBytes(ch, nameBytes);
+    central.push(new Uint8Array(ch));
+
+    offset += lhBytes.length + dataBytes.length;
+  });
+
+  var centralOffset = offset;
+  var centralSize = central.reduce(function(sum, c){ return sum + c.length; }, 0);
+
+  var eocd = [];
+  pushU32(eocd, 0x06054b50);
+  pushU16(eocd, 0);            // disk number
+  pushU16(eocd, 0);            // disk with central directory
+  pushU16(eocd, files.length); // entries on this disk
+  pushU16(eocd, files.length); // entries total
+  pushU32(eocd, centralSize);
+  pushU32(eocd, centralOffset);
+  pushU16(eocd, 0);            // comment length
+
+  var parts = localChunks.concat(central, [new Uint8Array(eocd)]);
+  var total = parts.reduce(function(sum, p){ return sum + p.length; }, 0);
+  var out = new Uint8Array(total);
+  var pos = 0;
+  parts.forEach(function(p){ out.set(p, pos); pos += p.length; });
+  return out;
+}
+
+function colLetter(n){
+  var s = '';
+  while(n > 0){
+    var rem = (n - 1) % 26;
+    s = String.fromCharCode(65 + rem) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+function xlsxCell(ref, value, bold){
+  var v = (value === null || value === undefined) ? '' : String(value);
+  return '<c r="' + ref + '" t="inlineStr"' + (bold ? ' s="1"' : '') + '>'
+    + '<is><t xml:space="preserve">' + esc(v) + '</t></is></c>';
+}
+function exportXLSX(){
+  var cols = ['record_id', 'processed_time', 'source_file', 'verdict', 'payee',
+              'amount_numeric', 'cheque_date', 'memo', 'signature_detected'];
+  var headers = ['Record ID', 'Processed', 'Source File', 'Verdict', 'Payee',
+                 'Amount', 'Cheque Date', 'Memo', 'Signature'];
+
+  var rowsXml = '<row r="1">' + headers.map(function(h, i){
+    return xlsxCell(colLetter(i + 1) + '1', h, true);
+  }).join('') + '</row>';
+
+  view.forEach(function(r, ri){
+    var rowNum = ri + 2;
+    rowsXml += '<row r="' + rowNum + '">' + cols.map(function(c, ci){
+      return xlsxCell(colLetter(ci + 1) + rowNum, r[c], false);
+    }).join('') + '</row>';
+  });
+
+  var sheetXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + '<dimension ref="A1:' + colLetter(cols.length) + (view.length + 1) + '"/>'
+    + '<sheetData>' + rowsXml + '</sheetData>'
+    + '</worksheet>';
+
+  var contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    + '<Default Extension="xml" ContentType="application/xml"/>'
+    + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+    + '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+    + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+    + '</Types>';
+
+  var rootRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+    + '</Relationships>';
+
+  var workbookXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+    + 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    + '<sheets><sheet name="Cheques" sheetId="1" r:id="rId1"/></sheets>'
+    + '</workbook>';
+
+  var workbookRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+    + '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+    + '</Relationships>';
+
+  var stylesXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>'
+    + '<font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
+    + '<fills count="2"><fill><patternFill patternType="none"/></fill>'
+    + '<fill><patternFill patternType="gray125"/></fill></fills>'
+    + '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+    + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+    + '<cellXfs count="2">'
+    + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+    + '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+    + '</cellXfs>'
+    + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+    + '</styleSheet>';
+
+  var files = [
+    {name: '[Content_Types].xml', data: contentTypes},
+    {name: '_rels/.rels', data: rootRels},
+    {name: 'xl/workbook.xml', data: workbookXml},
+    {name: 'xl/_rels/workbook.xml.rels', data: workbookRels},
+    {name: 'xl/styles.xml', data: stylesXml},
+    {name: 'xl/worksheets/sheet1.xml', data: sheetXml}
+  ];
+
+  var zipBytes = zipFiles(files);
+  var blob = new Blob([zipBytes], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'chequemate_export.xlsx';
+  a.click();
+}
+
 function renderDonut(){
   var total = RULE_COUNTS.PASS + RULE_COUNTS.FAIL + RULE_COUNTS.UNABLE;
   var svg = document.getElementById('donut');
@@ -650,10 +1063,86 @@ function renderDonut(){
     + '<span class="dk" style="background:#fbbf24"></span><b>' + RULE_COUNTS.UNABLE + '</b> Unable';
 }
 
+/* ── full-screen cheque-image viewer ──
+   Navigates the CURRENT filtered/sorted view (not the full record set) —
+   arrows walk through whatever the table is showing right now. The prev
+   arrow hides at the first record, the next arrow hides at the last. */
+function openLightbox(recordId){
+  var idx = view.findIndex(function(r){ return r.record_id === recordId; });
+  lightboxIndex = idx === -1 ? 0 : idx;
+  renderLightbox();
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox(){
+  document.getElementById('lightbox').classList.remove('open');
+}
+function lightboxPrev(){
+  if(lightboxIndex > 0){ lightboxIndex--; renderLightbox(); }
+}
+function lightboxNext(){
+  if(lightboxIndex < view.length - 1){ lightboxIndex++; renderLightbox(); }
+}
+function lightboxImgError(){
+  document.getElementById('lb-img').style.display = 'none';
+  document.getElementById('lb-missing').style.display = '';
+}
+
+var ZOOM_MIN = 0.5, ZOOM_MAX = 3, ZOOM_STEP = 0.25;
+var lightboxZoom = 1;
+function applyZoom(){
+  document.getElementById('lb-img').style.transform = 'scale(' + lightboxZoom + ')';
+  document.getElementById('lb-zoom-level').textContent = Math.round(lightboxZoom * 100) + '%';
+  document.getElementById('lb-zoom-in').disabled = lightboxZoom >= ZOOM_MAX;
+  document.getElementById('lb-zoom-out').disabled = lightboxZoom <= ZOOM_MIN;
+}
+function zoomIn(){
+  lightboxZoom = Math.min(ZOOM_MAX, Math.round((lightboxZoom + ZOOM_STEP) * 100) / 100);
+  applyZoom();
+}
+function zoomOut(){
+  lightboxZoom = Math.max(ZOOM_MIN, Math.round((lightboxZoom - ZOOM_STEP) * 100) / 100);
+  applyZoom();
+}
+
+function renderLightbox(){
+  var rec = view[lightboxIndex];
+  if(!rec) return;
+  var img = document.getElementById('lb-img');
+  img.style.display = '';
+  document.getElementById('lb-missing').style.display = 'none';
+  img.src = rec.source_file ? IMAGE_DIR + encodeURIComponent(rec.source_file) : '';
+  document.getElementById('lb-cap').textContent =
+    rec.record_id + '  ·  ' + (rec.source_file || 'no source file on record')
+    + '  ·  ' + (rec.payee || '—') + '  ·  ' + rec.verdict;
+  document.getElementById('lb-counter').textContent =
+    (lightboxIndex + 1) + ' of ' + view.length;
+  document.getElementById('lb-prev').classList.toggle('hidden', lightboxIndex === 0);
+  document.getElementById('lb-next').classList.toggle('hidden', lightboxIndex === view.length - 1);
+  lightboxZoom = 1;
+  applyZoom();
+}
+document.getElementById('lb-prev').addEventListener('click', lightboxPrev);
+document.getElementById('lb-next').addEventListener('click', lightboxNext);
+document.getElementById('lb-close').addEventListener('click', closeLightbox);
+document.getElementById('lb-zoom-in').addEventListener('click', zoomIn);
+document.getElementById('lb-zoom-out').addEventListener('click', zoomOut);
+document.getElementById('lightbox').addEventListener('click', function(e){
+  if(e.target.id === 'lightbox') closeLightbox();
+});
+document.addEventListener('keydown', function(e){
+  if(!document.getElementById('lightbox').classList.contains('open')) return;
+  if(e.key === 'ArrowLeft') lightboxPrev();
+  else if(e.key === 'ArrowRight') lightboxNext();
+  else if(e.key === 'Escape') closeLightbox();
+  else if(e.key === '+' || e.key === '=') zoomIn();
+  else if(e.key === '-' || e.key === '_') zoomOut();
+});
+
 document.getElementById('q').addEventListener('input', applyFilters);
 document.getElementById('f-verdict').addEventListener('change', applyFilters);
 document.getElementById('f-year').addEventListener('change', applyFilters);
 document.getElementById('export-btn').addEventListener('click', exportCSV);
+document.getElementById('export-xlsx-btn').addEventListener('click', exportXLSX);
 document.querySelectorAll('th[data-key]').forEach(function(th){
   th.addEventListener('click', function(){ setSort(th.getAttribute('data-key')); });
 });
@@ -705,6 +1194,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     <option value="">All years</option>
   </select>
   <button class="btn" id="export-btn">&#8595; Export CSV</button>
+  <button class="btn" id="export-xlsx-btn">&#8595; Export Excel</button>
   <span class="resultcount" id="rc"></span>
 </section>
 
@@ -717,6 +1207,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
           <th data-key="record_id">Record ID <span class="si">&#8645;</span></th>
           <th data-key="processed_time">Processed <span class="si">&#8645;</span></th>
           <th data-key="source_file">Source File <span class="si">&#8645;</span></th>
+          <th>Cheque</th>
           <th data-key="verdict">Verdict <span class="si">&#8645;</span></th>
           <th data-key="payee">Payee <span class="si">&#8645;</span></th>
           <th data-key="amount_numeric">Amount <span class="si">&#8645;</span></th>
@@ -735,6 +1226,26 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   <span>ChequeMate Validation Report &middot; click a row to expand rule detail</span>
   <span>Model __MODEL__ &middot; Ruleset __RULESET__</span>
 </footer>
+
+<div class="lightbox" id="lightbox">
+  <div class="lb-frame">
+    <div class="zoom-controls">
+      <button id="lb-zoom-out" aria-label="Zoom out">&#8722;</button>
+      <span class="zoom-level" id="lb-zoom-level">100%</span>
+      <button id="lb-zoom-in" aria-label="Zoom in">&#43;</button>
+    </div>
+    <button class="nav prev" id="lb-prev" aria-label="Previous cheque">&#8249;</button>
+    <img id="lb-img" alt="Cheque image" onerror="lightboxImgError()">
+    <div class="missing" id="lb-missing" style="display:none">
+      No cheque image found at <code>cheques/</code> for this record.<br>
+      It may have been sourced from a saved raw response instead of an image.
+    </div>
+    <button class="nav next" id="lb-next" aria-label="Next cheque">&#8250;</button>
+    <button class="close" id="lb-close" aria-label="Close">&#10005;</button>
+  </div>
+  <div class="lb-cap" id="lb-cap"></div>
+  <div class="lb-counter" id="lb-counter"></div>
+</div>
 
 <script>__JS__</script>
 </body>
