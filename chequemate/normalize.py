@@ -375,8 +375,21 @@ def normalize_date(raw: str | None, prefer: str = "DMY", **kw) -> Field:
 # ---------------------------------------------------------------------------
 
 def normalize_signature(raw: str | None, detected: bool | None = None,
-                        **kw) -> Field:
-    """`detected` comes from the extractor's signature verdict."""
+                        ambiguous_reason: str | None = None, **kw) -> Field:
+    """`detected` comes from the extractor's signature verdict.
+
+    `ambiguous_reason` is the pipeline boundary for imageprep.py's
+    `OrientationIndeterminate`: when the cheque's orientation couldn't be
+    confidently resolved, ANY signature reading taken from that crop is
+    unreliable regardless of what a detector says. AMBIGUOUS (not ABSENT)
+    because there may well be a signature-shaped mark on the page - what's
+    unreliable is which crop it came from, not whether ink was seen at all.
+    check_signature routes this straight to UNABLE.
+    """
+    if ambiguous_reason is not None:
+        return Field("signature", raw_text=raw,
+                     parse_status=ParseStatus.AMBIGUOUS,
+                     note=ambiguous_reason, **kw)
     if detected is None:
         return Field("signature", parse_status=ParseStatus.ABSENT,
                      raw_text=raw,

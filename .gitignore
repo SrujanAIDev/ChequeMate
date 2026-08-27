@@ -16,6 +16,10 @@ __pycache__/
 # raw/ and cheques/ above — keep local and gitignored.
 reports/
 
+# imageprep.py debug dumps and signature-zone contact sheets: derived from
+# real cheque images, same privacy rationale as cheques/ above.
+debug/
+
 .vscode/
 .idea/
 .coverage

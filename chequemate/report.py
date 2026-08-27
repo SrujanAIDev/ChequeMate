@@ -184,8 +184,19 @@ def _field_value(field) -> Any:
 
 def create_report_record(cheque: NormalizedCheque, validation: ValidationResult,
                           source_file: str | Path, source_hash: str,
-                          processed_time: datetime | None = None) -> dict:
-    """Build one privacy-safe, JSON-safe record. Does not assign record_id."""
+                          processed_time: datetime | None = None,
+                          rotation: dict | None = None) -> dict:
+    """Build one privacy-safe, JSON-safe record. Does not assign record_id.
+
+    `rotation` is imageprep.RotationDecision.as_dict() when the image went
+    through that pipeline stage, else None (no imageprep call site exists
+    yet - this field is forward-compatible schema, same pattern as memo's
+    addition: existing callers keep working, new ones can start passing it).
+    Kept both nested (full detail for the report's detail panel) and as flat
+    top-level fields (rotation_direction / rotation_confident) so the
+    dashboard's existing flat sort/filter machinery can reach it without
+    special-casing nested objects.
+    """
     processed_time = processed_time or datetime.now().astimezone()
     rules_by_id: dict[str, RuleResult] = {r.rule_id: r for r in validation.rules}
 
@@ -218,6 +229,9 @@ def create_report_record(cheque: NormalizedCheque, validation: ValidationResult,
         "cheque_date": _field_value(cheque.cheque_date),
         "signature_detected": _field_value(cheque.signature),
         "memo": _field_value(cheque.memo),
+        "rotation": rotation,
+        "rotation_direction": rotation["direction"] if rotation else None,
+        "rotation_confident": rotation["confident"] if rotation else None,
         "confidence": {
             "payee": rule_conf("payee"),
             "amount_numeric": rule_conf("amount_match"),
@@ -294,6 +308,7 @@ _CSS = """
   --bad:#fb7185;
   --bad-bg:rgba(251,113,133,0.16);
   --warn:#fbbf24;
+  --warn-bg:rgba(251,191,36,0.16);
   --shadow:0 8px 32px rgba(0,0,0,0.35);
   --radius:16px;
 }
@@ -343,8 +358,9 @@ body{
   white-space:nowrap;
 }
 .chip b{color:var(--text-primary); font-weight:600}
-.stats{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:16px}
-@media (max-width:900px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stats{display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:16px}
+@media (max-width:1100px){.stats{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}}
 .tile{padding:16px 20px; position:relative; overflow:hidden}
 .tile::before{
   content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
@@ -352,10 +368,12 @@ body{
 }
 .tile.total{--bar:var(--brand-b)}
 .tile.ok{--bar:var(--ok)}
+.tile.review{--bar:var(--warn)}
 .tile.bad{--bar:var(--bad)}
 .tile .label{font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted)}
 .tile .value{font-size:30px; font-weight:700; margin-top:6px; font-variant-numeric:tabular-nums}
 .tile.ok .value{color:var(--ok)}
+.tile.review .value{color:var(--warn)}
 .tile.bad .value{color:var(--bad)}
 .tile.donut{display:flex; align-items:center; gap:14px}
 .donut-svg{width:64px; height:64px; transform:rotate(-90deg); flex:none}
@@ -415,6 +433,7 @@ tbody tr.row.expanded{background:rgba(255,255,255,0.06)}
   border-radius:999px; font-size:11px; font-weight:700;
 }
 .badge.ok{background:var(--ok-bg); color:var(--ok)}
+.badge.review{background:var(--warn-bg); color:var(--warn)}
 .badge.bad{background:var(--bad-bg); color:var(--bad)}
 .rule-dots{display:flex; gap:4px}
 .rd{width:9px; height:9px; border-radius:2px; display:inline-block; flex:none}
@@ -446,7 +465,7 @@ tr.detail-row td{
 .detail-meta{grid-column:1 / -1; margin-top:4px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.08)}
 .detail-meta summary{cursor:pointer; font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted)}
 .detail-meta summary:hover{color:var(--text-secondary)}
-.detail-meta .meta-body{display:grid; grid-template-columns:1.1fr 0.9fr; gap:22px; margin-top:12px}
+.detail-meta .meta-body{display:grid; grid-template-columns:1fr 1fr 1fr; gap:22px; margin-top:12px}
 .detail-meta h5{font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 8px}
 @media (max-width:760px){.detail-meta .meta-body{grid-template-columns:1fr}}
 .review-item{
@@ -601,8 +620,8 @@ const RULE_GUIDANCE = {
       "An unsigned cheque is incomplete and cannot be processed.",
       "Place it in the 'Problem Cheques' folder and contact the customer to sign or replace it (Cheque Return Letter process if there's no contact info)."
     ],
-    unable: "The signature was unclear — please confirm it by hand.",
-    unableSteps: ["Visually confirm a signature is present before processing."]
+    unable: "Could not determine whether a signature is present — this is not the same as a signature being present but hard to read; the cheque needs a manual look.",
+    unableSteps: ["Visually confirm whether a signature is present before processing — do not assume one exists."]
   },
   memo: {
     pass: "✓ A memo/note is present, showing what the payment is for.",
@@ -651,7 +670,17 @@ let view = RECORDS.slice();
 
 // Cheque images are never embedded in this file (privacy: nothing copies
 // the image bytes anywhere) — this is a relative path to the source
-// images folder alongside reports/, resolved live by the browser.
+// images folder, resolved live by the browser. regenerate_report() always
+// writes this file to reports/chequemate_report.html with images at
+// repo-root cheques/ (a sibling of reports/, not of this file), so the
+// correct relative path from here is '../cheques/'. If this file is ever
+// deployed somewhere images sit alongside it instead, this needs to become
+// 'cheques/' for that layout — see CLAUDE.md's "IMAGE_DIR relative-path
+// trap" section before changing it again.
+// MUST NOT start with '/': a leading slash makes the browser treat it as
+// an absolute path from the site/host root, discarding whatever directory
+// this report itself was deployed into (e.g. file://host/chequemate/... ->
+// file://host/cheques/... , silently dropping /chequemate).
 const IMAGE_DIR = '../cheques/';
 let lightboxIndex = 0;
 
@@ -672,11 +701,24 @@ function ruleDots(rules){
   }).join('');
 }
 function rowHTML(rec, idx){
-  var verdictCls = rec.verdict === 'VALID' ? 'ok' : 'bad';
-  var verdictIcon = rec.verdict === 'VALID' ? '✓' : '✗';
+  var verdictCls = rec.verdict === 'VALID' ? 'ok' : rec.verdict === 'REVIEW' ? 'review' : 'bad';
+  var verdictIcon = rec.verdict === 'VALID' ? '✓' : rec.verdict === 'REVIEW' ? '?' : '✗';
   var sig = rec.signature_detected === true ? 'Yes'
     : rec.signature_detected === false ? 'No'
     : '<span class="dash">&mdash;</span>';
+  var rot = '<span class="dash">&mdash;</span>';
+  if(rec.rotation){
+    var isOverride = rec.rotation.source === 'operator_override';
+    var rotCls = rec.rotation_confident ? 'ok' : 'bad';
+    var rotIcon = rec.rotation_confident ? '' : ' ⚠';
+    var rotTitle = 'fundamental ' + rec.rotation.fundamental_score.toFixed(2)
+      + ' / harmonic ' + rec.rotation.harmonic_score.toFixed(2) + ' @ '
+      + rec.rotation.dpi + ' dpi (' + rec.rotation.dpi_source + ')'
+      + (isOverride ? ' — operator override; detector had refused' : '');
+    rot = '<span class="badge ' + rotCls + '" title="' + esc(rotTitle) + '">'
+      + esc(rec.rotation_direction) + rotIcon
+      + (isOverride ? ' \u{1F464}' : '') + '</span>';
+  }
   return ''
     + '<td class="mono">' + (idx + 1) + '</td>'
     + '<td class="cell-id">' + esc(rec.record_id) + '</td>'
@@ -691,6 +733,7 @@ function rowHTML(rec, idx){
     + '<td class="mono">' + fmt(rec.cheque_date) + '</td>'
     + '<td>' + fmt(rec.memo) + '</td>'
     + '<td>' + sig + '</td>'
+    + '<td>' + rot + '</td>'
     + '<td class="rule-dots">' + ruleDots(rec.rules) + '</td>';
 }
 function detailHTML(rec){
@@ -726,6 +769,21 @@ function detailHTML(rec){
     return '<div class="raw-line">' + esc(k) + ': ' + esc(raw[k]) + '</div>';
   }).join('') || '<div class="raw-line dash">No raw values captured.</div>';
 
+  var rot = rec.rotation;
+  var rotHtml = rot
+    ? '<div class="raw-line">direction: ' + esc(rot.direction) + '</div>'
+      + '<div class="raw-line">source: ' + esc(rot.source || 'detector') + '</div>'
+      + '<div class="raw-line">fundamental score: ' + esc(rot.fundamental_score.toFixed(3)) + '</div>'
+      + '<div class="raw-line">harmonic score: ' + esc(rot.harmonic_score.toFixed(3)) + '</div>'
+      + '<div class="raw-line">MICR pitch lock: ' + esc(rot.fundamental_lag_px) + 'px</div>'
+      + '<div class="raw-line">dpi: ' + esc(rot.dpi) + ' (' + esc(rot.dpi_source) + ')</div>'
+      + '<div class="raw-line">confident: ' + (rot.confident
+          ? 'yes' : '<b>no — orientation was marginal, verify by hand</b>') + '</div>'
+      + (rot.detector_note
+          ? '<div class="raw-line"><b>detector originally refused:</b> ' + esc(rot.detector_note) + '</div>'
+          : '')
+    : '<div class="raw-line dash">No image-preparation data on this record.</div>';
+
   var revs = reviewsByRecord[rec.record_id] || [];
   var revHtml = revs.length ? revs.map(function(rv){
     return '<div class="review-item">' + esc(rv.note || rv.status || '')
@@ -741,6 +799,7 @@ function detailHTML(rec){
     + '<summary>Raw extracted text &amp; review history</summary>'
     + '<div class="meta-body">'
     + '<div><h5>Raw extracted text</h5>' + rawHtml + '</div>'
+    + '<div><h5>Image preparation</h5>' + rotHtml + '</div>'
     + '<div><h5>Review history</h5>' + revHtml + '</div>'
     + '</div>'
     + '</details>'
@@ -750,7 +809,7 @@ function render(){
   var tbody = document.getElementById('tbody');
   tbody.innerHTML = '';
   if(view.length === 0){
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="12">No cheques processed yet.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="13">No cheques processed yet.</td></tr>';
     document.getElementById('rc').textContent = 'Showing 0 of ' + RECORDS.length + ' records';
     return;
   }
@@ -764,7 +823,7 @@ function render(){
     var dtr = document.createElement('tr');
     dtr.className = 'detail-row' + (rec.record_id === expandedId ? ' open' : '');
     var dtd = document.createElement('td');
-    dtd.colSpan = 12;
+    dtd.colSpan = 13;
     dtd.innerHTML = (rec.record_id === expandedId) ? detailHTML(rec) : '';
     dtr.appendChild(dtd);
     tbody.appendChild(dtr);
@@ -779,9 +838,11 @@ function applyFilters(){
   var q = document.getElementById('q').value.trim().toLowerCase();
   var fv = document.getElementById('f-verdict').value;
   var fy = document.getElementById('f-year').value;
+  var fr = document.getElementById('f-rotation').value;
   view = RECORDS.filter(function(r){
     if(fv && r.verdict !== fv) return false;
     if(fy && String(r.cheque_date || '').slice(0, 4) !== fy) return false;
+    if(fr === 'low' && r.rotation_confident !== false) return false;
     if(q){
       var hay = [r.record_id, r.payee, r.source_file, r.payee_normalized].join(' ').toLowerCase();
       if(hay.indexOf(q) === -1) return false;
@@ -1141,6 +1202,7 @@ document.addEventListener('keydown', function(e){
 document.getElementById('q').addEventListener('input', applyFilters);
 document.getElementById('f-verdict').addEventListener('change', applyFilters);
 document.getElementById('f-year').addEventListener('change', applyFilters);
+document.getElementById('f-rotation').addEventListener('change', applyFilters);
 document.getElementById('export-btn').addEventListener('click', exportCSV);
 document.getElementById('export-xlsx-btn').addEventListener('click', exportXLSX);
 document.querySelectorAll('th[data-key]').forEach(function(th){
@@ -1176,6 +1238,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <section class="stats">
   <div class="tile glass total"><div class="label">Total Processed</div><div class="value">__TOTAL__</div></div>
   <div class="tile glass ok"><div class="label">Valid</div><div class="value">__VALID__</div></div>
+  <div class="tile glass review"><div class="label">Review</div><div class="value">__REVIEW__</div></div>
   <div class="tile glass bad"><div class="label">Invalid</div><div class="value">__INVALID__</div></div>
   <div class="tile glass donut">
     <svg class="donut-svg" viewBox="0 0 42 42" id="donut"><circle class="track" cx="21" cy="21" r="15.9"></circle></svg>
@@ -1188,10 +1251,15 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   <select class="ctl" id="f-verdict">
     <option value="">All verdicts</option>
     <option value="VALID">Valid</option>
+    <option value="REVIEW">Review</option>
     <option value="INVALID">Invalid</option>
   </select>
   <select class="ctl" id="f-year">
     <option value="">All years</option>
+  </select>
+  <select class="ctl" id="f-rotation">
+    <option value="">All rotations</option>
+    <option value="low">Low-confidence rotation</option>
   </select>
   <button class="btn" id="export-btn">&#8595; Export CSV</button>
   <button class="btn" id="export-xlsx-btn">&#8595; Export Excel</button>
@@ -1214,6 +1282,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
           <th data-key="cheque_date">Cheque Date <span class="si">&#8645;</span></th>
           <th data-key="memo">Memo <span class="si">&#8645;</span></th>
           <th>Signature</th>
+          <th data-key="rotation_confident">Rotation <span class="si">&#8645;</span></th>
           <th>Rules</th>
         </tr>
       </thead>
@@ -1237,7 +1306,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     <button class="nav prev" id="lb-prev" aria-label="Previous cheque">&#8249;</button>
     <img id="lb-img" alt="Cheque image" onerror="lightboxImgError()">
     <div class="missing" id="lb-missing" style="display:none">
-      No cheque image found at <code>cheques/</code> for this record.<br>
+      No cheque image found at <code>../cheques/</code> for this record.<br>
       It may have been sourced from a saved raw response instead of an image.
     </div>
     <button class="nav next" id="lb-next" aria-label="Next cheque">&#8250;</button>
@@ -1290,7 +1359,8 @@ def generate_html(records: list[dict], reviews: list[dict] | None = None) -> str
     reviews = reviews or []
     total = len(records)
     valid = sum(1 for r in records if r.get("verdict") == "VALID")
-    invalid = total - valid
+    review = sum(1 for r in records if r.get("verdict") == "REVIEW")
+    invalid = sum(1 for r in records if r.get("verdict") == "INVALID")
     rule_counts = _rule_status_counts(records)
     date_range = _date_range_label(records)
     generated = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -1305,6 +1375,7 @@ def generate_html(records: list[dict], reviews: list[dict] | None = None) -> str
             .replace("__JS__", js)
             .replace("__TOTAL__", str(total))
             .replace("__VALID__", str(valid))
+            .replace("__REVIEW__", str(review))
             .replace("__INVALID__", str(invalid))
             .replace("__DATE_RANGE__", html.escape(date_range))
             .replace("__RULESET__", html.escape(RULE_SET_VERSION))
@@ -1325,16 +1396,20 @@ def regenerate_report() -> Path:
 # ---------------------------------------------------------------------------
 
 def update_report(cheque: NormalizedCheque, validation: ValidationResult,
-                  source_path: str | Path) -> ReportOutcome:
+                  source_path: str | Path,
+                  rotation: dict | None = None) -> ReportOutcome:
     """Record one validated cheque and regenerate the dashboard.
 
     Safe to call once per successfully-analyzed cheque; duplicates (same
     source file contents) are detected and skipped without altering the
-    cheque's own validation result.
+    cheque's own validation result. `rotation` is optional imageprep
+    provenance (see create_report_record) - omit until a caller wires
+    imageprep.py into the live extraction path.
     """
     ensure_report_directory()
     source_hash = hash_file(source_path)
-    record = create_report_record(cheque, validation, source_path, source_hash)
+    record = create_report_record(cheque, validation, source_path, source_hash,
+                                  rotation=rotation)
     outcome = append_record(record)
 
     if outcome.created:

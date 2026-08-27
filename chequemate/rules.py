@@ -105,6 +105,14 @@ def check_amounts_match(cheque: NormalizedCheque, cfg: Config) -> RuleResult:
 
 def check_signature(cheque: NormalizedCheque, cfg: Config) -> RuleResult:
     f = cheque.signature
+    if f.parse_status is ParseStatus.AMBIGUOUS:
+        # Orientation-indeterminate source crop (imageprep.OrientationIndeterminate)
+        # - a signature reading taken from an unknown orientation can't be
+        # trusted either way, so this must route to UNABLE, never PASS/FAIL.
+        return RuleResult("signature", RuleStatus.UNABLE,
+                          f"signature verdict unreliable: "
+                          f"{f.note or 'ambiguous source image orientation'}",
+                          f.confidence)
     if not f.ok:
         return _unable("signature", f)
     if f.value:

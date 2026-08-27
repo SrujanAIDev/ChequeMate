@@ -28,6 +28,7 @@ class RuleStatus(str, Enum):
 
 class Verdict(str, Enum):
     VALID = "VALID"
+    REVIEW = "REVIEW"    # no rule FAILed, but at least one couldn't be evaluated
     INVALID = "INVALID"
 
 

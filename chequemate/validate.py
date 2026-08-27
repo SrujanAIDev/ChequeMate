@@ -14,7 +14,7 @@ from .rules import (
     check_signature,
 )
 
-RULE_SET_VERSION = "1.3.0"
+RULE_SET_VERSION = "1.5.0"
 
 
 def validate(cheque: NormalizedCheque, cfg: Config | None = None,
@@ -27,9 +27,18 @@ def validate(cheque: NormalizedCheque, cfg: Config | None = None,
         check_date(cheque, cfg, today=today),
         check_memo(cheque, cfg),
     ]
-    # UNABLE means "couldn't tell" (unreadable field, extraction gap) — that's
-    # not evidence the cheque is wrong, just that a human needs to look. Only
-    # a genuine FAIL (something we could read and know is wrong) invalidates.
-    verdict = Verdict.INVALID if any(r.status is RuleStatus.FAIL for r in results) \
-        else Verdict.VALID
+    # Three-valued verdict, deliberately not collapsed back to two: UNABLE
+    # means "couldn't tell" (unreadable field, extraction gap, indeterminate
+    # image prep) - that's not evidence the cheque is wrong, but it is NOT
+    # evidence it's fine either, and reporting it as VALID (the previous
+    # behaviour) means every cheque a rule couldn't assess gets waved
+    # through unreviewed. A genuine FAIL (something we could read and know
+    # is wrong) still invalidates outright - FAIL always wins over UNABLE.
+    # Everything else, with no UNABLE anywhere, is a clean VALID.
+    if any(r.status is RuleStatus.FAIL for r in results):
+        verdict = Verdict.INVALID
+    elif any(r.status is RuleStatus.UNABLE for r in results):
+        verdict = Verdict.REVIEW
+    else:
+        verdict = Verdict.VALID
     return ValidationResult(verdict=verdict, rules=results, cheque=cheque)

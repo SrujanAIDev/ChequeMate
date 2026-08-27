@@ -142,16 +142,16 @@ def test_amount_mismatch_fails():
     assert f.rule_id == "amount_match" and "BEA s.28(2)" in f.evidence
 
 
-def test_missing_signature_field_is_unable_and_does_not_invalidate():
+def test_missing_signature_field_is_unable_and_routes_to_review():
     """Cheque 2: no PayerSignatures key at all. UNABLE means 'couldn't tell',
-    not 'known to be wrong' — it still needs a human look (surfaced via
-    .failures) but must not by itself flip an otherwise-clean cheque to
-    INVALID."""
+    not 'known to be wrong' — it must not flip an otherwise-clean cheque to
+    INVALID, but it must not be silently waved through as VALID either: it
+    needs a human look, which is exactly what REVIEW means."""
     doc = azure_doc(PayerSignatures=None)
     r = validate(to_normalized(doc), today=TODAY)
     (f,) = r.failures
     assert f.rule_id == "signature" and f.status is RuleStatus.UNABLE
-    assert r.verdict is Verdict.VALID
+    assert r.verdict is Verdict.REVIEW
 
 
 def test_signature_read_from_bounding_regions_only():
@@ -163,6 +163,35 @@ def test_unsigned_cheque_fails():
     doc = azure_doc(PayerSignatures={"valueSignature": "unsigned"})
     (f,) = validate(to_normalized(doc), today=TODAY).failures
     assert f.status is RuleStatus.FAIL
+
+
+def test_orientation_indeterminate_maps_to_unable_not_fail_or_pass():
+    """The pipeline-boundary contract for imageprep.OrientationIndeterminate
+    (Phase 3, Amendment 3): a signature reading from an unresolvable
+    orientation must never look like a confident PASS or FAIL. It must
+    become ParseStatus.AMBIGUOUS -> RuleStatus.UNABLE, which must not
+    invalidate an otherwise-clean cheque outright, but also must not be
+    silently reported as VALID — it routes to REVIEW."""
+    from chequemate.imageprep import OrientationIndeterminate
+    from chequemate.normalize import normalize_signature
+
+    try:
+        raise OrientationIndeterminate(
+            "neither orientation cleared the confidence floor",
+            top_score=0.31, bottom_score=0.30, dpi=300.0, dpi_source="jfif")
+    except OrientationIndeterminate as exc:
+        sig = normalize_signature(None, ambiguous_reason=str(exc))
+
+    assert sig.parse_status is ParseStatus.AMBIGUOUS
+
+    doc = azure_doc()
+    cheque = to_normalized(doc)
+    cheque.signature = sig
+    result = validate(cheque, today=TODAY)
+
+    sig_result = next(r for r in result.rules if r.rule_id == "signature")
+    assert sig_result.status is RuleStatus.UNABLE
+    assert result.verdict is Verdict.REVIEW
 
 
 def test_stale_dated_cheque_fails():
@@ -211,6 +240,34 @@ def test_multiple_failures_all_reported():
     )
     r = validate(to_normalized(doc), today=TODAY)
     assert {f.rule_id for f in r.failures} == {"payee", "signature"}
+
+
+def test_fail_beats_unable_for_verdict():
+    """A cheque with one genuine FAIL and one UNABLE must be INVALID, not
+    REVIEW - a known-wrong field always outranks an unreadable one."""
+    doc = azure_doc(
+        PayTo={"valueString": "City of Oshawa"},  # FAIL
+        PayerSignatures=None,                      # UNABLE
+    )
+    r = validate(to_normalized(doc), today=TODAY)
+    statuses = {f.rule_id: f.status for f in r.rules}
+    assert statuses["payee"] is RuleStatus.FAIL
+    assert statuses["signature"] is RuleStatus.UNABLE
+    assert r.verdict is Verdict.INVALID
+
+
+def test_review_verdict_only_when_no_fail_present():
+    """The exact three-way split: FAIL anywhere -> INVALID; no FAIL but at
+    least one UNABLE -> REVIEW; no FAIL and no UNABLE -> VALID."""
+    clean = validate(to_normalized(azure_doc()), today=TODAY)
+    assert clean.verdict is Verdict.VALID
+
+    unable_only = validate(to_normalized(azure_doc(PayerSignatures=None)), today=TODAY)
+    assert unable_only.verdict is Verdict.REVIEW
+
+    with_fail = validate(to_normalized(azure_doc(
+        PayerSignatures=None, PayTo={"valueString": "City of Oshawa"})), today=TODAY)
+    assert with_fail.verdict is Verdict.INVALID
 
 
 def test_strictness_is_configurable():

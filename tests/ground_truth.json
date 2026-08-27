@@ -1,0 +1,225 @@
+{
+  "_readme": "Hand-keyed true values for the 22-cheque batch (CHQ-20260824-0001..0022, source 20260820113647241_0001..0022.jpg), used by scripts/score_accuracy.py to measure per-field extraction accuracy against reports/cheques.json. Fill in only the fields you can confidently read off the source image; leave a field null to skip scoring it for that record (null is NOT counted as a failure). Field formats: payee/memo as plain text; amount_numeric/amount_words as decimal strings e.g. '125.50'; cheque_date as an ISO date 'YYYY-MM-DD'; signature as true/false.",
+  "records": [
+    {
+      "record_id": "CHQ-20260824-0001",
+      "source_file": "20260820113647241_0001.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0002",
+      "source_file": "20260820113647241_0002.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0003",
+      "source_file": "20260820113647241_0003.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0004",
+      "source_file": "20260820113647241_0004.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0005",
+      "source_file": "20260820113647241_0005.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0006",
+      "source_file": "20260820113647241_0006.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0007",
+      "source_file": "20260820113647241_0007.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0008",
+      "source_file": "20260820113647241_0008.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0009",
+      "source_file": "20260820113647241_0009.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0010",
+      "source_file": "20260820113647241_0010.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0011",
+      "source_file": "20260820113647241_0011.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0012",
+      "source_file": "20260820113647241_0012.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0013",
+      "source_file": "20260820113647241_0013.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0014",
+      "source_file": "20260820113647241_0014.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0015",
+      "source_file": "20260820113647241_0015.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0016",
+      "source_file": "20260820113647241_0016.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0017",
+      "source_file": "20260820113647241_0017.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0018",
+      "source_file": "20260820113647241_0018.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0019",
+      "source_file": "20260820113647241_0019.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0020",
+      "source_file": "20260820113647241_0020.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0021",
+      "source_file": "20260820113647241_0021.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    },
+    {
+      "record_id": "CHQ-20260824-0022",
+      "source_file": "20260820113647241_0022.jpg",
+      "payee": null,
+      "amount_numeric": null,
+      "amount_words": null,
+      "cheque_date": null,
+      "signature": null,
+      "memo": null
+    }
+  ]
+}

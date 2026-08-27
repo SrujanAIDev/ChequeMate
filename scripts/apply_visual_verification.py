@@ -97,8 +97,12 @@ def _rebuild_cheque(record: dict, date_convention: str = "DMY") -> NormalizedChe
 
 
 def _recompute_verdict(rules: list[RuleResult]) -> Verdict:
-    return Verdict.INVALID if any(r.status is RuleStatus.FAIL for r in rules) \
-        else Verdict.VALID
+    """Mirrors validate.py's three-way collapse (FAIL beats UNABLE beats clean)."""
+    if any(r.status is RuleStatus.FAIL for r in rules):
+        return Verdict.INVALID
+    if any(r.status is RuleStatus.UNABLE for r in rules):
+        return Verdict.REVIEW
+    return Verdict.VALID
 
 
 def _already_reviewed(reviews: list[dict], record_id: str, field: str) -> bool:

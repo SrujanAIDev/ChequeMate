@@ -13,6 +13,12 @@ Needs AZURE_DI_ENDPOINT / AZURE_DI_KEY (env vars or a .env file at repo
 root) — only if there's at least one genuinely new image to send to Azure;
 a run that only finds already-processed files, or only new .json replay
 files, needs no credentials at all.
+
+Every genuinely new image's full Azure response is saved to raw/<name>.json
+by default (pass --save-raw "" to disable) - the same capture cli.py's
+--save-raw has always done, now on by default here too, so a field-
+extraction question ("was X actually absent from Azure's response, or lost
+in normalization?") never needs a second Azure call to answer.
 """
 
 from __future__ import annotations
@@ -34,7 +40,7 @@ ssl._create_default_https_context = lambda: ssl.create_default_context(
     cafile=certifi.where())
 
 from chequemate import Config, validate  # noqa: E402
-from chequemate.extract import analyze, first_document, to_normalized  # noqa: E402
+from chequemate.extract import analyze_raw, first_document, to_normalized  # noqa: E402
 from chequemate import report  # noqa: E402
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".heif"}
@@ -63,14 +69,29 @@ def discover_files(folder: Path) -> list[Path]:
 
 
 def process_one(path: Path, endpoint: str | None, key: str | None,
-                cfg: Config, date_convention: str) -> report.ReportOutcome:
-    """analyze() for images, offline replay for .json -> validate() -> update_report()."""
+                cfg: Config, date_convention: str,
+                save_raw_dir: Path | None = None) -> report.ReportOutcome:
+    """Call Azure (or replay a saved response) -> validate() -> update_report().
+
+    `save_raw_dir`, when given, writes the FULL Azure response to
+    <dir>/<name>.json before normalizing - the same capture cli.py's
+    --save-raw does, so a genuinely new image only ever needs to touch
+    Azure once, offline replay/debugging is possible forever after, and a
+    field-extraction question (e.g. "was Memo actually absent from Azure's
+    response, or lost in normalization?") never again requires a second
+    Azure call to answer.
+    """
     if path.suffix.lower() in REPLAY_EXTENSIONS:
         raw = json.loads(path.read_text(encoding="utf-8"))
-        cheque = to_normalized(first_document(raw), source_id=str(path),
-                               date_convention=date_convention)
     else:
-        cheque = analyze(str(path), endpoint, key, date_convention=date_convention)
+        raw = analyze_raw(str(path), endpoint, key)
+        if save_raw_dir is not None:
+            save_raw_dir.mkdir(parents=True, exist_ok=True)
+            dest = save_raw_dir / (path.stem + ".json")
+            dest.write_text(json.dumps(raw, indent=2, default=str), encoding="utf-8")
+
+    cheque = to_normalized(first_document(raw), source_id=str(path),
+                           date_convention=date_convention)
     result = validate(cheque, cfg)
     return report.update_report(cheque=cheque, validation=result, source_path=path)
 
@@ -86,7 +107,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--date-convention", choices=["DMY", "MDY"], default="DMY")
     ap.add_argument("--verbose", action="store_true",
                     help="print a line per file (skip/new) as it's decided")
+    ap.add_argument("--save-raw", metavar="DIR", default=str(ROOT / "raw"),
+                    help="write each new full Azure response to DIR/<name>.json "
+                         "(default: raw/; pass an empty string to disable)")
     args = ap.parse_args(argv)
+    save_raw_dir = Path(args.save_raw) if args.save_raw else None
 
     folder = Path(args.folder)
     if not folder.is_dir():
@@ -137,7 +162,8 @@ def main(argv: list[str] | None = None) -> int:
     errors = 0
     for path in to_process:
         try:
-            outcome = process_one(path, endpoint, key, cfg, args.date_convention)
+            outcome = process_one(path, endpoint, key, cfg, args.date_convention,
+                                  save_raw_dir=save_raw_dir)
         except Exception as exc:
             print(f"WARNING: {path.name} — {exc}", file=sys.stderr)
             errors += 1
