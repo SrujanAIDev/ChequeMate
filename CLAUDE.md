@@ -8,19 +8,23 @@ ChequeMate validates scanned/photographed cheques against Service Whitby's accep
 rules. Azure Document Intelligence (`prebuilt-check.us`, a fixed prebuilt cloud model —
 **not** retrainable from this codebase) extracts raw field text from a cheque image; this
 repo turns that into a typed, provenance-tracked record, runs five independent rules over
-it, and produces one auditable verdict plus a self-contained HTML dashboard. No ML lives in
-this repo — `rules.py`/`normalize.py` are deterministic, hand-written Python.
+it, and produces one auditable verdict plus a self-contained HTML dashboard.
+`rules.py`/`normalize.py` are deterministic, hand-written Python — no ML is part of the
+pass/fail decision anywhere. The one optional exception is TrOCR field-level secondary
+*verification* (see below): a local model that only ever adds an advisory second opinion
+for a human reviewer, never a rule input.
 
 ## Commands
 
-No `requirements.txt` / `pyproject.toml` exists. The `.venv/` (Python 3.14, created via
-`uv`) already has the runtime deps installed: `azure-ai-documentintelligence`,
-`azure-core`, `certifi`, `python-dateutil`, `pytest`, `requests`. On Windows, `python` is
-not on PATH directly (it hits the Microsoft Store alias) — always invoke via
-`.\.venv\Scripts\python.exe`. There is no linter/formatter configured and no build step.
+`requirements.txt` pins every dependency (core pipeline + the optional TrOCR ML stack —
+see "TrOCR field-level secondary verification" below). The `.venv/` (Python 3.14, created
+via `uv`) already has it installed: `.\.venv\Scripts\python.exe -m pip install -r
+requirements.txt`. On Windows, `python` is not on PATH directly (it hits the Microsoft
+Store alias) — always invoke via `.\.venv\Scripts\python.exe`. There is no
+linter/formatter configured and no build step.
 
 ```powershell
-# Full test suite (tests/test_cheque.py + tests/test_report.py)
+# Full test suite (tests/)
 .\.venv\Scripts\python.exe -m pytest -q
 
 # One file / one test
@@ -49,7 +53,9 @@ Ways to run the pipeline, in increasing order of "real":
   logs a warning and doesn't abort the batch. `--save-raw` defaults **on** (writes to
   `raw/<name>.json`, same as `cli.py`'s flag) specifically so a "was field X actually absent
   from Azure's response, or lost in normalization?" question never again requires a second
-  Azure call to answer — pass `--save-raw ""` to disable.
+  Azure call to answer — pass `--save-raw ""` to disable. `--trocr` enables TrOCR
+  field-level secondary verification on newly-processed images (off by default — see
+  "TrOCR field-level secondary verification" below and `docs/trocr_verification.md`).
 
 ## Architecture
 
@@ -213,7 +219,22 @@ amount cents recovery, `UNABLE` no longer invalidates) → `1.4.0` (an orientati
 source image maps to `ParseStatus.AMBIGUOUS` on the signature field, which `check_signature`
 routes to `UNABLE` — the pipeline-boundary contract for `imageprep.OrientationIndeterminate`)
 → `1.5.0` (added the `REVIEW` verdict — any `UNABLE` on a load-bearing rule now routes there
-instead of silently collapsing to `VALID`; `FAIL` still always produces `INVALID`).
+instead of silently collapsing to `VALID`; `FAIL` still always produces `INVALID`)
+→ `1.6.0` (three changes, prompted by a real experiment showing Azure DI is not perfectly
+deterministic run-to-run on unchanged input: (1) `extract.to_normalized_multi`/
+`reconcile_cheques` — optional repeat-extraction reconciliation, `scripts/run_batch.py
+--repeat-extraction N`; a field that disagrees across N runs becomes `ParseStatus.AMBIGUOUS`
+with `value=None` and every run's reading preserved in `Field.alternate_readings`, and every
+`check_*` rule routes that specific shape (AMBIGUOUS + no value — see
+`rules._disagreement_ambiguous`) to `UNABLE`, never a fabricated guess; (2) `check_memo` no
+longer returns `FAIL` for a blank/absent memo — investigation found every checkable real case
+was Azure's `Memo` key being entirely absent (a genuine extraction gap), and "key present but
+empty" isn't trustworthy enough evidence of a genuinely confirmed-blank line to keep a hard
+FAIL either (same failure shape as the bank-letterhead payee problem) — `require_memo` is kept
+in `Config` but no longer changes this outcome; (3) `check_amounts_match`'s `UNABLE` message,
+when the numeric amount parses but the words amount doesn't, now states the numeric figure
+plainly rather than describing the words failure in isolation — still never a `PASS` on the
+numeric alone).
 After bumping it, run `scripts/revalidate.py` to re-score existing history.
 
 ### Image preparation (`chequemate/imageprep.py`)
@@ -335,6 +356,53 @@ locks this in deliberately as a documented limitation, not a bug to silently sta
 the fix (if pursued) is re-confirming the zone against that template's own contact sheet, not
 nudging a threshold. This module should be understood as validated for the 22-file batch's
 template family and resolution specifically, not as a general-purpose detector yet.
+
+### TrOCR field-level secondary verification (`geometry.py`, `crops.py`, `trocr_adapter.py`, `ocr_verify.py`, `verification_report.py`)
+
+Optional, off by default (`CHEQUEMATE_TROCR_ENABLED` / `run_batch.py --trocr`). A local
+Microsoft TrOCR handwritten model reads a crop of one specific field (payee /
+`amount_words` / memo) that Document Intelligence's own polygon already located, purely as
+a second, non-authoritative observation for a human reviewer — never a whole-cheque OCR
+pass, never a field detector, never able to overwrite a DI value, never a participant in
+`rules.py`'s deterministic pass/fail logic. Full detail, configuration, privacy behavior,
+and known limitations: `docs/trocr_verification.md`; licensing/provenance for the new
+dependencies and the model weights themselves: `docs/licensing_provenance.md`.
+
+The short version: `geometry.py` is the one centralized DI-polygon→pixel converter (never
+raises — a structured `ConversionStatus` for every failure mode); `crops.py` validates a
+candidate region (area/aspect-ratio/optional-ROI) and only then generates a padded crop —
+there is no code path anywhere in this feature that falls back to sending the full cheque
+image to TrOCR; `trocr_adapter.py` lazy-loads `transformers`/`torch` (so the rest of the
+pipeline works with them absent) and runs inference locally only — no cheque data is ever
+sent to a hosted inference API; `ocr_verify.py` is the policy layer (config, field-specific
+normalization, and a ten-status transparent comparison table — `AGREE_EXACT` through
+`BOTH_UNDETERMINED` — that always keeps DI's own value as the authoritative
+`selected_display_value`, even on disagreement); `verification_report.py` renders a
+*second*, additive HTML report (`chequemate_verification_report.html`) from the same
+`reports/cheques.json` records — `chequemate_report.html` is completely untouched by this
+feature, so rollback is simply `CHEQUEMATE_TROCR_ENABLED=false`.
+
+**Whole-cheque rotation must be corrected before cropping — this repo's entire real corpus
+is stored portrait**, ~90° off from upright (the same rotation `imageprep.py`'s signature
+pipeline already handles). DI's polygon is defined in that same un-rotated space; cropping
+straight from it is geometrically exact but visually sideways, which silently inverted every
+field's plausible aspect ratio during this feature's own first real run against
+`reports/cheques.json` (`amount_words` was rejected on **100% of real cheques** before this
+was diagnosed and fixed). Fixed via `imageprep.detect_rotation_only()` (isolate+rotate only,
+deliberately skipping deskew/canvas-resize so pixel coordinates stay matched to DI's polygon)
+feeding `ocr_verify.resolve_rotation()` / `crops.py`'s `rotation` parameter: crop from the
+original image using DI's coordinates unchanged, then physically rotate just that one small
+crop. A file the detector can't confidently resolve is refused (`TROCR_NOT_RUN`), never
+guessed at; `rotation_override` reuses a standing `apply_rotation_override.py` confirmation
+(e.g. `_0001`/`_0006`/`_0011`) instead of re-refusing a file a human already resolved.
+
+`scripts/backfill_raw_responses.py` (one real Azure call per file, read-only w.r.t.
+`cheques.json` — it only backfills `raw/*.json`) and `scripts/apply_trocr_verification.py`
+(strictly additive — sets only `ocr_verifications` on each record, never touches
+`verdict`/`rules`) are how the real, downloaded `microsoft/trocr-base-handwritten` model was
+validated against this repo's actual historical corpus, not just injected fakes.
+`transformers` **must stay pinned to the 4.x line** — `5.16.1` cannot load this model's
+tokenizer at all (confirmed by hand); see `requirements.txt`'s comment before ever bumping it.
 
 ### Extending the pipeline (adding a field, as memo did)
 

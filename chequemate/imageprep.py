@@ -457,6 +457,29 @@ def normalize_canvas(rgb: np.ndarray, size: tuple[int, int] = (CANVAS_WIDTH, CAN
     return np.asarray(image), (target_w / w, target_h / h)
 
 
+def detect_rotation_only(path: str | Path) -> RotationDecision:
+    """isolate() -> rotate() only - NOT deskew()/normalize_canvas(). For a
+    caller that needs the rotation direction alone to correct a field crop
+    taken directly from the ORIGINAL image using Document Intelligence's
+    own polygon (which is defined in that original image's pixel space).
+    `prepare_cheque_image()`'s full pipeline deliberately isn't reused here:
+    deskew's `expand=True` and normalize_canvas's resize both change pixel
+    coordinates in ways that would break correspondence with DI's polygon,
+    and are unnecessary just to learn CW vs CCW.
+
+    Raises NoChequeFound / OrientationIndeterminate exactly as
+    prepare_cheque_image() does - callers must catch these at the pipeline
+    boundary, same as always (see this module's docstring).
+    """
+    path = Path(path)
+    image = Image.open(path).convert("RGB")
+    dpi, dpi_source = _get_dpi(image)
+    rgb = np.asarray(image)
+    isolated = isolate(rgb)
+    _, decision = rotate(isolated, dpi, dpi_source)
+    return decision
+
+
 # ---------------------------------------------------------------------------
 # top-level entry point
 # ---------------------------------------------------------------------------

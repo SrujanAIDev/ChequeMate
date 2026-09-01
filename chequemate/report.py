@@ -182,10 +182,68 @@ def _field_value(field) -> Any:
 # record creation
 # ---------------------------------------------------------------------------
 
+def _field_verification_to_dict(fv) -> dict:
+    return {
+        "field_name": fv.field_name,
+        "primary": {
+            "engine": fv.primary.engine,
+            "raw_value": fv.primary.raw_value,
+            "normalized_value": fv.primary.normalized_value,
+            "confidence": fv.primary.confidence,
+            "polygon": fv.primary.polygon,
+            "page_number": fv.primary.page_number,
+            "model_id": fv.primary.model_id,
+            "model_version": fv.primary.model_version,
+        },
+        "crop": {
+            "status": fv.crop.status.value,
+            "page_number": fv.crop.page_number,
+            "pixel_bbox": list(fv.crop.pixel_bbox) if fv.crop.pixel_bbox else None,
+            "padding_pixels": fv.crop.padding_pixels,
+            "validation_reasons": fv.crop.validation_reasons,
+            "image_reference": fv.crop.image_reference,
+        },
+        "secondary": {
+            "engine": fv.secondary.engine,
+            "status": fv.secondary.status.value,
+            "raw_value": fv.secondary.raw_value,
+            "normalized_value": fv.secondary.normalized_value,
+            "score": fv.secondary.score,
+            "score_type": fv.secondary.score_type,
+            "model_id": fv.secondary.model_id,
+            "model_version": fv.secondary.model_version,
+            "preprocessing_variant": fv.secondary.preprocessing_variant,
+            "latency_ms": fv.secondary.latency_ms,
+            "error_code": fv.secondary.error_code,
+        },
+        "comparison": {
+            "status": fv.comparison.status.value,
+            "similarity": fv.comparison.similarity,
+            "selected_display_value": fv.comparison.selected_display_value,
+            "selection_source": fv.comparison.selection_source,
+            "manual_review_required": fv.comparison.manual_review_required,
+            "reason_codes": fv.comparison.reason_codes,
+        },
+    }
+
+
+def _ocr_verifications_to_dict(ocr_verifications: dict | None) -> dict | None:
+    """JSON-safe serialization of {field_name: FieldVerification}. Returns
+    None (not {}) when verification never ran, so the report/JS layer can
+    cleanly distinguish "TrOCR disabled for this record" from "ran and
+    found nothing eligible" - see report.py's REVIEW-verdict handling for
+    the same never-collapse-distinct-states principle."""
+    if not ocr_verifications:
+        return None
+    return {name: _field_verification_to_dict(fv)
+           for name, fv in ocr_verifications.items()}
+
+
 def create_report_record(cheque: NormalizedCheque, validation: ValidationResult,
                           source_file: str | Path, source_hash: str,
                           processed_time: datetime | None = None,
-                          rotation: dict | None = None) -> dict:
+                          rotation: dict | None = None,
+                          ocr_verifications: dict | None = None) -> dict:
     """Build one privacy-safe, JSON-safe record. Does not assign record_id.
 
     `rotation` is imageprep.RotationDecision.as_dict() when the image went
@@ -196,6 +254,12 @@ def create_report_record(cheque: NormalizedCheque, validation: ValidationResult,
     top-level fields (rotation_direction / rotation_confident) so the
     dashboard's existing flat sort/filter machinery can reach it without
     special-casing nested objects.
+
+    `ocr_verifications` is {field_name: FieldVerification} from
+    ocr_verify.verify_cheque_fields() - None (the default) when TrOCR
+    verification is disabled or was never run for this record, so every
+    existing caller and every existing record already in cheques.json
+    keeps working unchanged.
     """
     processed_time = processed_time or datetime.now().astimezone()
     rules_by_id: dict[str, RuleResult] = {r.rule_id: r for r in validation.rules}
@@ -232,6 +296,7 @@ def create_report_record(cheque: NormalizedCheque, validation: ValidationResult,
         "rotation": rotation,
         "rotation_direction": rotation["direction"] if rotation else None,
         "rotation_confident": rotation["confident"] if rotation else None,
+        "ocr_verifications": _ocr_verifications_to_dict(ocr_verifications),
         "confidence": {
             "payee": rule_conf("payee"),
             "amount_numeric": rule_conf("amount_match"),
@@ -578,8 +643,25 @@ const RULE_GUIDANCE = {
     ]
   },
   amount_match: {
-    pass: "✓ The written amount and the number amount agree.",
-    fail: "The amount in words doesn't match the number amount. By law the written words are the amount that counts.",
+    /* Ruleset 1.8.0/1.9.0: a PASS can come from two clean readings
+       agreeing, from corroboration (a degraded reading - the written
+       cents suffix needed repair - still converging with the numeral),
+       or from token-match (the exact written-amount parse failed, but
+       every word the numeral implies was found in the text with no
+       conflicting scale word). Surface which one happened rather than
+       showing the same generic line either way. */
+    pass: function(msg){
+      if(msg.indexOf('resolved by token-match') !== -1)
+        return "✓ The written amount and the number amount agree — the written amount couldn't be read as a clean phrase, but every word the numeral implies is present in it, with no conflicting scale word (e.g. no stray \"thousand\") stated.";
+      if(msg.indexOf('resolved by corroboration') !== -1)
+        return "✓ The written amount and the number amount agree — the written amount's cents suffix couldn't be read as printed, but the dollar figure written out in words still matches the numeral, which is real corroboration.";
+      return "✓ The written amount and the number amount agree.";
+    },
+    fail: function(msg){
+      return msg.indexOf('no valid reading') !== -1
+        ? "The written amount states a figure (e.g. a \"thousand\" or a different hundred) that the number amount rules out entirely — this looks like a genuine alteration or a completely different cheque, not just messy handwriting."
+        : "The amount in words doesn't match the number amount. By law the written words are the amount that counts.";
+    },
     steps: [
       "This fails the completeness check — written and numeric amounts must match. Do not enter the payment.",
       "If the customer is at the counter, have them correct the cheque and initial the change.",
@@ -587,7 +669,13 @@ const RULE_GUIDANCE = {
     ]
   },
   date: {
+    /* Ruleset 1.10.0: a 6-digit date read resolved via converging
+       interpretations (see normalize._resolve_six_digit_date) is a
+       repaired reading, not a clean one - say so, same principle as
+       amount_match's corroboration/token-match notes. */
     pass: function(msg){
+      if(msg.indexOf('resolved via') !== -1)
+        return "✓ The cheque date is valid — the printed date box was short a digit or two, but every plausible way of reading it agreed on this date.";
       return msg.indexOf('post-dated') !== -1
         ? "✓ Date accepted — this cheque is post-dated (future-dated) and should go to the post-dated batch process."
         : "✓ The cheque date is valid and current.";
@@ -624,10 +712,16 @@ const RULE_GUIDANCE = {
     unableSteps: ["Visually confirm whether a signature is present before processing — do not assume one exists."]
   },
   memo: {
+    /* Ruleset 1.6.0: check_memo can no longer return FAIL — a blank/absent
+       memo routes to UNABLE (see rules.py's check_memo docstring for why:
+       this pipeline cannot reliably tell a genuinely-blank memo line apart
+       from Azure simply failing to extract one). Only pass/unable are
+       reachable states now. */
     pass: "✓ A memo/note is present, showing what the payment is for.",
-    fail: "There's no memo on the cheque, so it's unclear what this payment is for.",
-    steps: [
-      "Place the cheque in the 'Cheque Missing Information' folder in the filing cabinet.",
+    unable: "We couldn't confirm a memo/note is present — this may be a data-extraction gap rather than a genuinely missing memo, so it needs a manual look at the actual cheque before treating it as missing.",
+    unableSteps: [
+      "Visually check the cheque itself for a memo/note before treating it as missing.",
+      "If a memo genuinely isn't present, place the cheque in the 'Cheque Missing Information' folder in the filing cabinet.",
       "Scan a copy of the cheque.",
       "Email pmt-investigation@whitby.ca using the email template and attach the scan.",
       "If a department claims it, route it to them; if not, continue the missing-information exception process."
@@ -670,18 +764,22 @@ let view = RECORDS.slice();
 
 // Cheque images are never embedded in this file (privacy: nothing copies
 // the image bytes anywhere) — this is a relative path to the source
-// images folder, resolved live by the browser. regenerate_report() always
-// writes this file to reports/chequemate_report.html with images at
-// repo-root cheques/ (a sibling of reports/, not of this file), so the
-// correct relative path from here is '../cheques/'. If this file is ever
-// deployed somewhere images sit alongside it instead, this needs to become
-// 'cheques/' for that layout — see CLAUDE.md's "IMAGE_DIR relative-path
-// trap" section before changing it again.
+// images folder, resolved live by the browser, and it is topology-
+// dependent (see CLAUDE.md's "IMAGE_DIR relative-path trap" section):
+// regenerate_report()'s default writes to reports/chequemate_report.html
+// with images at repo-root cheques/ (a sibling of reports/, not of this
+// file), needing '../cheques/' - but at least one real deployment
+// (the \\Th240netsrv\chequemate jump-server share) puts the HTML and
+// cheques/ as SIBLINGS in the same folder instead, needing 'cheques/'
+// with no '../'. generate_html()'s `image_dir` parameter controls this -
+// never hand-edit the value baked into a deployed copy (it is silently
+// discarded the next time anyone regenerates from that same call site);
+// pass the right `image_dir` for the target layout instead.
 // MUST NOT start with '/': a leading slash makes the browser treat it as
 // an absolute path from the site/host root, discarding whatever directory
 // this report itself was deployed into (e.g. file://host/chequemate/... ->
 // file://host/cheques/... , silently dropping /chequemate).
-const IMAGE_DIR = '../cheques/';
+const IMAGE_DIR = '__IMAGE_DIR__';
 let lightboxIndex = 0;
 
 function esc(s){
@@ -1355,7 +1453,18 @@ def _json_for_script(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, default=str).replace("</", "<\\/")
 
 
-def generate_html(records: list[dict], reviews: list[dict] | None = None) -> str:
+def generate_html(records: list[dict], reviews: list[dict] | None = None,
+                  image_dir: str = "../cheques/") -> str:
+    """`image_dir` is the browser-relative path from wherever the returned
+    HTML ends up living to the folder holding the source cheque images -
+    see the "IMAGE_DIR relative-path trap" note in the JS template and in
+    CLAUDE.md. The default ('../cheques/') is correct ONLY for
+    regenerate_report()'s own layout (reports/chequemate_report.html next
+    to a repo-root cheques/ sibling of reports/) - a different deployment
+    layout (e.g. the HTML and cheques/ as siblings of each other) needs a
+    different value passed in here, never hand-edited into the output
+    afterward.
+    """
     reviews = reviews or []
     total = len(records)
     valid = sum(1 for r in records if r.get("verdict") == "VALID")
@@ -1368,7 +1477,8 @@ def generate_html(records: list[dict], reviews: list[dict] | None = None) -> str
     js = (_JS_TEMPLATE
           .replace("__RECORDS_JSON__", _json_for_script(records))
           .replace("__REVIEWS_JSON__", _json_for_script(reviews))
-          .replace("__RULE_COUNTS_JSON__", _json_for_script(rule_counts)))
+          .replace("__RULE_COUNTS_JSON__", _json_for_script(rule_counts))
+          .replace("__IMAGE_DIR__", image_dir))
 
     return (_HTML_TEMPLATE
             .replace("__CSS__", _CSS)
@@ -1397,23 +1507,34 @@ def regenerate_report() -> Path:
 
 def update_report(cheque: NormalizedCheque, validation: ValidationResult,
                   source_path: str | Path,
-                  rotation: dict | None = None) -> ReportOutcome:
+                  rotation: dict | None = None,
+                  ocr_verifications: dict | None = None) -> ReportOutcome:
     """Record one validated cheque and regenerate the dashboard.
 
     Safe to call once per successfully-analyzed cheque; duplicates (same
     source file contents) are detected and skipped without altering the
     cheque's own validation result. `rotation` is optional imageprep
     provenance (see create_report_record) - omit until a caller wires
-    imageprep.py into the live extraction path.
+    imageprep.py into the live extraction path. `ocr_verifications` is
+    optional TrOCR field-verification provenance (see create_report_record)
+    - omit (the default) when TrOCR verification is disabled; every
+    existing call site keeps working unchanged.
     """
     ensure_report_directory()
     source_hash = hash_file(source_path)
     record = create_report_record(cheque, validation, source_path, source_hash,
-                                  rotation=rotation)
+                                  rotation=rotation,
+                                  ocr_verifications=ocr_verifications)
     outcome = append_record(record)
 
     if outcome.created:
-        append_audit_event({
+        ocr_summary = None
+        if ocr_verifications:
+            ocr_summary = {
+                name: fv.comparison.status.value
+                for name, fv in ocr_verifications.items()
+            }
+        audit_event = {
             "timestamp": outcome.record["processed_time"],
             "event": "cheque_processed",
             "record_id": outcome.record["record_id"],
@@ -1421,7 +1542,10 @@ def update_report(cheque: NormalizedCheque, validation: ValidationResult,
             "verdict": outcome.record["verdict"],
             "ruleset_version": outcome.record["ruleset_version"],
             "model": outcome.record["model"],
-        })
+        }
+        if ocr_summary:
+            audit_event["ocr_verification_summary"] = ocr_summary
+        append_audit_event(audit_event)
     else:
         append_audit_event({
             "timestamp": datetime.now().astimezone().isoformat(),
@@ -1431,4 +1555,18 @@ def update_report(cheque: NormalizedCheque, validation: ValidationResult,
         })
 
     regenerate_report()
+    # Local import: verification_report.py imports this module (for
+    # load_records/load_reviews/REPORTS_DIR/_atomic_write_text) - a
+    # module-level import here would be circular. This is purely additive:
+    # the original chequemate_report.html above is already written and
+    # never touched by this - a failure building the new report must not
+    # prevent the existing, already-working report from being available.
+    try:
+        from . import verification_report
+        verification_report.regenerate_verification_report()
+    except Exception as exc:  # noqa: BLE001 - the new report is additive;
+        # it must never take down the primary reporting path it rides
+        # alongside.
+        print(f"WARNING: verification report generation failed: "
+             f"{type(exc).__name__}: {exc}")
     return outcome

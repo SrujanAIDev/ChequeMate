@@ -36,7 +36,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from chequemate import Config, validate  # noqa: E402
-from chequemate.extract import normalize_memo  # noqa: E402
+from chequemate.extract import amount_numeric_cents, normalize_memo  # noqa: E402
 from chequemate.models import NormalizedCheque, RuleResult, RuleStatus, Verdict  # noqa: E402
 from chequemate.normalize import (  # noqa: E402
     normalize_amount_numeric,
@@ -49,43 +49,30 @@ from chequemate import report  # noqa: E402
 
 REVIEWER = "Claude (visual review, requested by srujan 2026-08-24)"
 
-# Records where Azure's PayerSignatures field came back with no verdict at
-# all ("field not returned by extractor"), but the source image clearly
-# shows a handwritten signature on the signature line.
-SIGNATURE_CONFIRMATIONS = [
-    "CHQ-20260824-0003", "CHQ-20260824-0007", "CHQ-20260824-0010",
-    "CHQ-20260824-0012", "CHQ-20260824-0013", "CHQ-20260824-0017",
-]
+# Cleared for the 1.7.0 re-score (explicit instruction: nothing should be
+# masked by a stale human correction while re-scoring against the new
+# ruleset - see CLAUDE.md/the 1.7.0 changelog). The 8 confirmations that
+# stood here (6 signature, 2 payee, all against CHQ-20260824-000x records)
+# are preserved in git history and in reports/reviews.json.bak (the
+# pre-1.7.0 snapshot) if they ever need restoring - this is not a claim
+# that the underlying human visual confirmations were wrong, only that
+# this re-score reports the algorithm's own current output unmasked.
+SIGNATURE_CONFIRMATIONS: list[str] = []
 
-# Records where the payee OCR was too garbled for token-fuzzy-matching to
-# safely resolve, but the source image is unambiguous on inspection.
-# {record_id: (confirmed_reading, why)}
-PAYEE_CONFIRMATIONS = {
-    "CHQ-20260824-0018": (
-        "Town of Whitby",
-        "OCR read the payee line as 'Town of writing'; the source image "
-        "clearly reads 'Town of Whitby' in cursive — 'writing' is a misread, "
-        "not a different payee.",
-    ),
-    "CHQ-20260824-0001": (
-        "Town of Whitby",
-        "PayTo extraction captured the drawee bank's own letterhead "
-        "('ROYAL BANK OF CANADA FINCH & MCCOWAN BRANCH') instead of the "
-        "handwritten payee line; the source image's 'PAY TO THE ORDER OF' "
-        "line clearly reads 'TOWN OF WHITBY'.",
-    ),
-}
+PAYEE_CONFIRMATIONS: dict[str, tuple[str, str]] = {}
 
 
 def _rebuild_cheque(record: dict, date_convention: str = "DMY") -> NormalizedCheque:
     raw = record.get("raw_values") or {}
     conf = record.get("confidence") or {}
+    amount_numeric = normalize_amount_numeric(
+        raw.get("amount_numeric"), confidence=conf.get("amount_numeric"))
     return NormalizedCheque(
         payee=normalize_payee(raw.get("payee"), confidence=conf.get("payee")),
-        amount_numeric=normalize_amount_numeric(
-            raw.get("amount_numeric"), confidence=conf.get("amount_numeric")),
+        amount_numeric=amount_numeric,
         amount_words=normalize_amount_words(
-            raw.get("amount_words"), confidence=conf.get("amount_words")),
+            raw.get("amount_words"), numeric_cents=amount_numeric_cents(amount_numeric),
+            confidence=conf.get("amount_words")),
         cheque_date=normalize_date(
             raw.get("date"), prefer=date_convention, confidence=conf.get("date")),
         signature=normalize_signature(

@@ -1,4 +1,6 @@
 raw/
+raw_corrected/
+raw_multi/
 cheques/
 archive/
 .env
@@ -24,3 +26,10 @@ debug/
 .idea/
 .coverage
 htmlcov/
+
+# TrOCR model weights: never committed, regardless of whether they're
+# resolved from the Hugging Face cache or an explicit local path (see
+# CHEQUEMATE_TROCR_LOCAL_MODEL_PATH in docs/trocr_verification.md). Both
+# conventional local-path locations are covered.
+models/
+.cache/huggingface/

@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shutil  # noqa: E402
 
 from chequemate import Config, validate  # noqa: E402
-from chequemate.extract import normalize_memo  # noqa: E402
+from chequemate.extract import amount_numeric_cents, normalize_memo  # noqa: E402
 from chequemate.models import NormalizedCheque, RuleResult, RuleStatus  # noqa: E402
 from chequemate.normalize import (  # noqa: E402
     normalize_amount_numeric,
@@ -73,12 +73,14 @@ from apply_visual_verification import (  # noqa: E402
 def _rebuild_cheque(record: dict, date_convention: str = "DMY") -> NormalizedCheque:
     raw = record.get("raw_values") or {}
     conf = record.get("confidence") or {}
+    amount_numeric = normalize_amount_numeric(
+        raw.get("amount_numeric"), confidence=conf.get("amount_numeric"))
     return NormalizedCheque(
         payee=normalize_payee(raw.get("payee"), confidence=conf.get("payee")),
-        amount_numeric=normalize_amount_numeric(
-            raw.get("amount_numeric"), confidence=conf.get("amount_numeric")),
+        amount_numeric=amount_numeric,
         amount_words=normalize_amount_words(
-            raw.get("amount_words"), confidence=conf.get("amount_words")),
+            raw.get("amount_words"), numeric_cents=amount_numeric_cents(amount_numeric),
+            confidence=conf.get("amount_words")),
         cheque_date=normalize_date(
             raw.get("date"), prefer=date_convention, confidence=conf.get("date")),
         signature=normalize_signature(

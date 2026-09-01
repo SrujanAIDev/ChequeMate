@@ -40,8 +40,11 @@ ssl._create_default_https_context = lambda: ssl.create_default_context(
     cafile=certifi.where())
 
 from chequemate import Config, validate  # noqa: E402
-from chequemate.extract import analyze_raw, first_document, to_normalized  # noqa: E402
+from chequemate.extract import (  # noqa: E402
+    analyze_raw, first_document, to_normalized, to_normalized_multi,
+)
 from chequemate import report  # noqa: E402
+from chequemate import ocr_verify  # noqa: E402
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".heif"}
 REPLAY_EXTENSIONS = {".json"}
@@ -70,7 +73,10 @@ def discover_files(folder: Path) -> list[Path]:
 
 def process_one(path: Path, endpoint: str | None, key: str | None,
                 cfg: Config, date_convention: str,
-                save_raw_dir: Path | None = None) -> report.ReportOutcome:
+                save_raw_dir: Path | None = None,
+                trocr_cfg: "ocr_verify.TrOCRVerificationConfig | None" = None,
+                repeat_extraction: int = 1,
+                ) -> report.ReportOutcome:
     """Call Azure (or replay a saved response) -> validate() -> update_report().
 
     `save_raw_dir`, when given, writes the FULL Azure response to
@@ -80,20 +86,58 @@ def process_one(path: Path, endpoint: str | None, key: str | None,
     field-extraction question (e.g. "was Memo actually absent from Azure's
     response, or lost in normalization?") never again requires a second
     Azure call to answer.
+
+    `trocr_cfg`, when given and enabled, runs field-level TrOCR
+    verification (see chequemate.ocr_verify) using this same `raw` Azure
+    response - the only place in the pipeline that still has the response's
+    boundingRegions/pages available (report.py's persisted records never
+    keep raw polygons). Skipped entirely (no error) for replay-JSON-only
+    inputs with no source image to crop, and whenever `trocr_cfg` is None
+    or disabled - existing behaviour when TrOCR is off is unchanged.
+
+    `repeat_extraction` (default 1 - identical behaviour to before this
+    existed): calls Azure this many times on the SAME image and reconciles
+    via extract.to_normalized_multi() - see that module's docstring for
+    why (a real experiment found DI is not perfectly deterministic
+    run-to-run on unchanged input). Ignored for replay-JSON inputs (there
+    is nothing to re-call). Each additional run's raw response is saved
+    alongside the first as <name>_run<N>.json when save_raw_dir is set.
     """
+    is_image = path.suffix.lower() in IMAGE_EXTENSIONS
     if path.suffix.lower() in REPLAY_EXTENSIONS:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw_responses = [json.loads(path.read_text(encoding="utf-8"))]
     else:
-        raw = analyze_raw(str(path), endpoint, key)
+        raw_responses = [analyze_raw(str(path), endpoint, key)
+                         for _ in range(max(1, repeat_extraction))]
         if save_raw_dir is not None:
             save_raw_dir.mkdir(parents=True, exist_ok=True)
-            dest = save_raw_dir / (path.stem + ".json")
-            dest.write_text(json.dumps(raw, indent=2, default=str), encoding="utf-8")
+            for i, one_raw in enumerate(raw_responses, start=1):
+                suffix = "" if i == 1 else f"_run{i}"
+                dest = save_raw_dir / (path.stem + suffix + ".json")
+                dest.write_text(json.dumps(one_raw, indent=2, default=str),
+                                encoding="utf-8")
 
-    cheque = to_normalized(first_document(raw), source_id=str(path),
-                           date_convention=date_convention)
+    documents = [first_document(r) for r in raw_responses]
+    if len(documents) == 1:
+        cheque = to_normalized(documents[0], source_id=str(path),
+                               date_convention=date_convention)
+    else:
+        cheque = to_normalized_multi(documents, source_id=str(path),
+                                     date_convention=date_convention)
+    raw = raw_responses[0]  # first run - TrOCR's polygon source below
+
     result = validate(cheque, cfg)
-    return report.update_report(cheque=cheque, validation=result, source_path=path)
+
+    ocr_verifications = None
+    if trocr_cfg is not None and trocr_cfg.enabled and is_image:
+        from PIL import Image
+        with Image.open(path) as image:
+            ocr_verifications = ocr_verify.verify_cheque_fields(
+                raw, image, cheque, trocr_cfg, record_id=path.stem,
+                source_path=path)
+
+    return report.update_report(cheque=cheque, validation=result, source_path=path,
+                                ocr_verifications=ocr_verifications)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -110,8 +154,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--save-raw", metavar="DIR", default=str(ROOT / "raw"),
                     help="write each new full Azure response to DIR/<name>.json "
                          "(default: raw/; pass an empty string to disable)")
+    ap.add_argument("--trocr", action="store_true",
+                    help="enable field-level TrOCR secondary verification "
+                         "(payee/amount_words/memo) on newly-processed images. "
+                         "Off by default; equivalent to CHEQUEMATE_TROCR_ENABLED=true. "
+                         "See docs/trocr_verification.md.")
+    ap.add_argument("--repeat-extraction", type=int, default=1, metavar="N",
+                    help="call Azure DI N times per newly-processed image and "
+                         "reconcile the results (see extract.to_normalized_multi) "
+                         "- fields that disagree across runs become AMBIGUOUS "
+                         "and route every rule that reads them to UNABLE rather "
+                         "than trusting a single, possibly-inconsistent read. "
+                         "Default 1 (off - identical to prior behaviour). "
+                         "Each extra call is a real, billed Azure request.")
     args = ap.parse_args(argv)
     save_raw_dir = Path(args.save_raw) if args.save_raw else None
+
+    trocr_cfg = ocr_verify.config_from_env(
+        ocr_verify.TrOCRVerificationConfig(enabled=args.trocr))
 
     folder = Path(args.folder)
     if not folder.is_dir():
@@ -163,7 +223,8 @@ def main(argv: list[str] | None = None) -> int:
     for path in to_process:
         try:
             outcome = process_one(path, endpoint, key, cfg, args.date_convention,
-                                  save_raw_dir=save_raw_dir)
+                                  save_raw_dir=save_raw_dir, trocr_cfg=trocr_cfg,
+                                  repeat_extraction=args.repeat_extraction)
         except Exception as exc:
             print(f"WARNING: {path.name} — {exc}", file=sys.stderr)
             errors += 1

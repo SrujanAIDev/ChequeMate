@@ -107,6 +107,55 @@ def test_isolate_raises_on_blank_array():
         isolate(blank)
 
 
+# ---------------------------------------------------------------------------
+# detect_rotation_only - used by ocr_verify.py's TrOCR crop pipeline to
+# learn a cheque's rotation direction WITHOUT deskew/canvas-resize side
+# effects, which would break pixel correspondence with Document
+# Intelligence's polygon (defined against the original, un-rotated image).
+# ---------------------------------------------------------------------------
+
+def test_detect_rotation_only_matches_full_pipeline_direction(tmp_path):
+    cheque = _draw_synthetic_cheque()
+    page = _paste_on_page(cheque)
+    distorted = page.rotate(90, expand=True, fillcolor="white")
+    path = tmp_path / "synthetic.jpg"
+    _save_with_dpi(distorted, path)
+
+    from chequemate.imageprep import detect_rotation_only
+    decision = detect_rotation_only(path)
+    full = prepare_cheque_image(path)
+    assert decision.direction == full.rotation.direction
+    assert decision.confident
+
+
+def test_detect_rotation_only_raises_no_cheque_found_on_blank_page(tmp_path):
+    blank = Image.new("RGB", (2552, 3300), "white")
+    path = tmp_path / "blank.jpg"
+    _save_with_dpi(blank, path)
+
+    from chequemate.imageprep import detect_rotation_only
+    with pytest.raises(NoChequeFound):
+        detect_rotation_only(path)
+
+
+def test_detect_rotation_only_does_not_produce_a_resized_canvas(tmp_path):
+    """The whole point of this function vs. prepare_cheque_image(): it must
+    not normalize to CANVAS_WIDTH/CANVAS_HEIGHT, since a caller matching
+    pixels against DI's polygon needs the ORIGINAL image's coordinate
+    space untouched."""
+    cheque = _draw_synthetic_cheque()
+    page = _paste_on_page(cheque)
+    distorted = page.rotate(90, expand=True, fillcolor="white")
+    path = tmp_path / "synthetic.jpg"
+    _save_with_dpi(distorted, path)
+
+    from chequemate.imageprep import RotationDecision, detect_rotation_only
+    decision = detect_rotation_only(path)
+    assert isinstance(decision, RotationDecision)
+    # returns provenance only, no image/canvas at all
+    assert not hasattr(decision, "image")
+
+
 def test_dpi_fallback_when_tag_absent(tmp_path):
     """No JFIF dpi tag -> falls back to the documented default rather than
     crashing or silently using an unscaled pitch window."""
