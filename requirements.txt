@@ -1,0 +1,54 @@
+# ChequeMate dependencies.
+#
+# This project previously had no requirements.txt/pyproject.toml (deps were
+# installed ad hoc into .venv, per CLAUDE.md). Adding the TrOCR verification
+# feature's ML stack (torch/transformers/sentencepiece/safetensors) is the
+# point at which that stopped being reproducible enough to leave undocumented -
+# this file pins every direct dependency to the exact version verified working
+# in .venv (Python 3.14.4, Windows, CPU) at the time this file was written.
+#
+# Install: .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+#
+# See docs/trocr_verification.md for local/offline model setup, CUDA notes,
+# and licensing/provenance for every ML package and the model weights
+# themselves.
+
+# --- core pipeline (always required) ---------------------------------------
+azure-ai-documentintelligence==1.0.2
+azure-core==1.41.0
+certifi==2026.7.22
+python-dateutil==2.9.0.post0
+requests==2.34.2
+pillow==12.3.0
+numpy==2.5.2
+
+# --- testing -----------------------------------------------------------------
+pytest==9.1.1
+
+# --- optional: TrOCR field-level secondary verification ----------------------
+# Only required when CHEQUEMATE_TROCR_ENABLED=true / run_batch.py --trocr is
+# used. Every module that imports these does so lazily (inside functions),
+# so the rest of the pipeline runs with these absent - see
+# chequemate/trocr_adapter.py's module docstring.
+#
+# This is the CPU build of torch (torch==2.13.0 with no CUDA suffix pulls
+# +cpu wheels on a machine with no matching CUDA toolkit). For a CUDA build,
+# install from PyTorch's own index instead, e.g.:
+#   pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cu124
+# then verify with: python -c "import torch; print(torch.cuda.is_available())"
+torch==2.13.0
+# transformers is pinned to the 4.x line deliberately, NOT the newest 5.x
+# release: transformers==5.16.1 (the initially-resolved "latest compatible"
+# version) cannot load microsoft/trocr-base-handwritten's tokenizer at all -
+# confirmed by hand: `TrOCRProcessor.from_pretrained(...)` raises
+# "Couldn't instantiate the backend tokenizer ... You need to have
+# sentencepiece or tiktoken installed" even with sentencepiece installed,
+# a real break in how 5.x's rewritten tokenizer-resolution path handles
+# this specific (older, GPT2-BPE-based) model repo. transformers==4.57.6
+# loads it correctly - verified against the real model weights, not just
+# import-tested. Re-check this pin before ever bumping to a 5.x release.
+transformers==4.57.6
+tokenizers==0.22.2
+huggingface_hub==0.36.2
+sentencepiece==0.2.2
+safetensors==0.8.0
